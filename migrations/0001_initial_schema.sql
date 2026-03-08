@@ -1,0 +1,16 @@
+CREATE TABLE IF NOT EXISTS users (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    telegram_id BIGINT  NOT NULL UNIQUE,
+    username    TEXT,
+    first_name  TEXT    NOT NULL,
+    last_name   TEXT,
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS groups (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    telegram_id BIGINT  NOT NULL UNIQUE,
+    title       TEXT    NOT NULL,
+    active      BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

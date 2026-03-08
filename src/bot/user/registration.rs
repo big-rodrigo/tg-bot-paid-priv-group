@@ -1,0 +1,366 @@
+use std::sync::Arc;
+use teloxide::{
+    prelude::*,
+    types::{ChatId, InlineKeyboardButton, InlineKeyboardMarkup, Message, ParseMode},
+};
+
+use crate::{
+    bot::state::{BotDialogue, HandlerResult, State},
+    db::{models::Question, queries, DbPool},
+    error::AppError,
+    payment::PaymentProvider,
+};
+
+fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
+/// Sends a question to the user, building the appropriate keyboard for button-type questions.
+pub async fn send_question(
+    bot: &Bot,
+    chat_id: ChatId,
+    pool: &DbPool,
+    question: &Question,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    match question.question_type.as_str() {
+        "button" => {
+            let options = queries::questions::list_options(pool, question.id).await?;
+            if options.is_empty() {
+                bot.send_message(chat_id, &question.text)
+                    .parse_mode(ParseMode::Html)
+                    .await?;
+                return Ok(());
+            }
+            let buttons: Vec<Vec<InlineKeyboardButton>> = options
+                .iter()
+                .map(|opt| {
+                    vec![InlineKeyboardButton::callback(
+                        opt.label.clone(),
+                        format!("opt:{}", opt.id),
+                    )]
+                })
+                .collect();
+            let keyboard = InlineKeyboardMarkup::new(buttons);
+            bot.send_message(chat_id, &question.text)
+                .parse_mode(ParseMode::Html)
+                .reply_markup(keyboard)
+                .await?;
+        }
+        "image" => {
+            let text = format!("{}\n\n📷 Please send a photo as your answer.", question.text);
+            bot.send_message(chat_id, text)
+                .parse_mode(ParseMode::Html)
+                .await?;
+        }
+        _ => {
+            // text, info, or unknown — just send the text
+            bot.send_message(chat_id, &question.text)
+                .parse_mode(ParseMode::Html)
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+/// Starts registration from the first question of the given phase, auto-advancing
+/// through any leading info blocks until the first interactive question.
+pub async fn start_phase(
+    bot: &Bot,
+    dialogue: &BotDialogue,
+    pool: &DbPool,
+    payment_provider: &Arc<dyn PaymentProvider + Send + Sync>,
+    chat_id: ChatId,
+    user_id: i64,
+    phase_id: i64,
+) -> HandlerResult {
+    let first_q = queries::questions::first_in_phase(pool, phase_id).await?;
+    match first_q {
+        None => {
+            all_phases_complete(bot, dialogue, pool, payment_provider, chat_id, user_id).await
+        }
+        Some(q) => {
+            sqlx::query(
+                "UPDATE user_registration SET current_phase_id = ?, current_question_id = ? WHERE user_id = ?",
+            )
+            .bind(phase_id)
+            .bind(q.id)
+            .bind(user_id)
+            .execute(pool)
+            .await?;
+
+            if q.question_type == "info" {
+                bot.send_message(chat_id, &q.text)
+                    .parse_mode(ParseMode::Html)
+                    .await?;
+                advance(bot, dialogue, pool, payment_provider, chat_id, user_id, phase_id, &q)
+                    .await
+            } else {
+                send_question(bot, chat_id, pool, &q).await?;
+                dialogue
+                    .update(State::InPhase {
+                        phase_id,
+                        question_id: q.id,
+                    })
+                    .await?;
+                Ok(())
+            }
+        }
+    }
+}
+
+/// Handles incoming messages (text or image) when the user is in a phase.
+pub async fn handle_message(
+    bot: Bot,
+    dialogue: BotDialogue,
+    msg: Message,
+    pool: DbPool,
+    payment_provider: Arc<dyn PaymentProvider + Send + Sync>,
+) -> HandlerResult {
+    let state = dialogue.get().await?.unwrap_or_default();
+    let (phase_id, question_id) = match state {
+        State::InPhase { phase_id, question_id } => (phase_id, question_id),
+        _ => return Ok(()),
+    };
+
+    let from = match msg.from.as_ref() {
+        Some(u) => u,
+        None => return Ok(()),
+    };
+
+    let user = queries::users::get_by_telegram_id(&pool, from.id.0 as i64)
+        .await?
+        .ok_or_else(|| AppError::NotFound("user not found".into()))?;
+
+    let question = queries::questions::get_by_id(&pool, question_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("question not found".into()))?;
+
+    match question.question_type.as_str() {
+        "text" => {
+            if let Some(text) = msg.text() {
+                queries::answers::save_text(&pool, user.id, question_id, text).await?;
+                advance(
+                    &bot,
+                    &dialogue,
+                    &pool,
+                    &payment_provider,
+                    msg.chat.id,
+                    user.id,
+                    phase_id,
+                    &question,
+                )
+                .await?;
+            } else {
+                bot.send_message(msg.chat.id, "Please send a text message to answer this question.")
+                    .await?;
+            }
+        }
+        "image" => {
+            if let Some(photos) = msg.photo() {
+                let file_id = photos
+                    .iter()
+                    .max_by_key(|p| p.width * p.height)
+                    .map(|p| p.file.id.to_string())
+                    .unwrap_or_default();
+                queries::answers::save_image(&pool, user.id, question_id, &file_id).await?;
+                advance(
+                    &bot,
+                    &dialogue,
+                    &pool,
+                    &payment_provider,
+                    msg.chat.id,
+                    user.id,
+                    phase_id,
+                    &question,
+                )
+                .await?;
+            } else {
+                bot.send_message(
+                    msg.chat.id,
+                    "Please send a photo to answer this question.",
+                )
+                .await?;
+            }
+        }
+        "button" => {
+            bot.send_message(
+                msg.chat.id,
+                "Please use the buttons below to answer this question.",
+            )
+            .await?;
+            send_question(&bot, msg.chat.id, &pool, &question).await?;
+        }
+        "info" => {
+            advance(
+                &bot,
+                &dialogue,
+                &pool,
+                &payment_provider,
+                msg.chat.id,
+                user.id,
+                phase_id,
+                &question,
+            )
+            .await?;
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
+/// Handles inline keyboard callback queries when the user is in a phase.
+pub async fn handle_callback(
+    bot: Bot,
+    dialogue: BotDialogue,
+    q: CallbackQuery,
+    pool: DbPool,
+    payment_provider: Arc<dyn PaymentProvider + Send + Sync>,
+) -> HandlerResult {
+    let state = dialogue.get().await?.unwrap_or_default();
+    let (phase_id, question_id) = match state {
+        State::InPhase { phase_id, question_id } => (phase_id, question_id),
+        _ => {
+            bot.answer_callback_query(q.id).await?;
+            return Ok(());
+        }
+    };
+
+    bot.answer_callback_query(q.id).await?;
+
+    let data = match q.data.as_deref() {
+        Some(d) => d.to_owned(),
+        None => return Ok(()),
+    };
+
+    // Callback data format: "opt:<option_id>"
+    if let Some(opt_id_str) = data.strip_prefix("opt:") {
+        if let Ok(option_id) = opt_id_str.parse::<i64>() {
+            let user_telegram_id = q.from.id.0 as i64;
+            let user = queries::users::get_by_telegram_id(&pool, user_telegram_id)
+                .await?
+                .ok_or_else(|| AppError::NotFound("user not found".into()))?;
+
+            let question = queries::questions::get_by_id(&pool, question_id)
+                .await?
+                .ok_or_else(|| AppError::NotFound("question not found".into()))?;
+
+            queries::answers::save_option(&pool, user.id, question_id, option_id).await?;
+
+            let chat_id = ChatId(user_telegram_id);
+            advance(
+                &bot,
+                &dialogue,
+                &pool,
+                &payment_provider,
+                chat_id,
+                user.id,
+                phase_id,
+                &question,
+            )
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Advances the dialogue to the next question, automatically skipping info blocks
+/// (which are sent immediately without waiting for user input).
+/// Uses a loop to avoid recursion for consecutive info blocks.
+pub(crate) async fn advance(
+    bot: &Bot,
+    dialogue: &BotDialogue,
+    pool: &DbPool,
+    payment_provider: &Arc<dyn PaymentProvider + Send + Sync>,
+    chat_id: ChatId,
+    user_id: i64,
+    start_phase_id: i64,
+    current_question: &Question,
+) -> HandlerResult {
+    let mut phase_id = start_phase_id;
+    let mut after_pos = current_question.position;
+
+    loop {
+        // Look for the next question in the current phase
+        if let Some(next_q) =
+            queries::questions::next_in_phase(pool, phase_id, after_pos).await?
+        {
+            sqlx::query(
+                "UPDATE user_registration SET current_phase_id = ?, current_question_id = ? WHERE user_id = ?",
+            )
+            .bind(phase_id)
+            .bind(next_q.id)
+            .bind(user_id)
+            .execute(pool)
+            .await?;
+
+            if next_q.question_type == "info" {
+                bot.send_message(chat_id, &next_q.text)
+                    .parse_mode(ParseMode::Html)
+                    .await?;
+                after_pos = next_q.position;
+                continue;
+            }
+
+            send_question(bot, chat_id, pool, &next_q).await?;
+            dialogue
+                .update(State::InPhase {
+                    phase_id,
+                    question_id: next_q.id,
+                })
+                .await?;
+            return Ok(());
+        }
+
+        // No more questions in this phase — find the next active phase
+        let current_phase = queries::phases::get_by_id(pool, phase_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound("phase not found".into()))?;
+
+        let phases = queries::phases::list_active(pool).await?;
+        match phases.into_iter().find(|p| p.position > current_phase.position) {
+            Some(next_phase) => {
+                bot.send_message(
+                    chat_id,
+                    format!("Moving on to: <b>{}</b>", escape_html(&next_phase.name)),
+                )
+                .parse_mode(ParseMode::Html)
+                .await?;
+                phase_id = next_phase.id;
+                after_pos = -1;
+            }
+            None => {
+                return all_phases_complete(
+                    bot,
+                    dialogue,
+                    pool,
+                    payment_provider,
+                    chat_id,
+                    user_id,
+                )
+                .await;
+            }
+        }
+    }
+}
+
+async fn all_phases_complete(
+    bot: &Bot,
+    dialogue: &BotDialogue,
+    pool: &DbPool,
+    payment_provider: &Arc<dyn PaymentProvider + Send + Sync>,
+    chat_id: ChatId,
+    user_id: i64,
+) -> HandlerResult {
+    sqlx::query(
+        "UPDATE user_registration SET completed_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    dialogue.update(State::AwaitingPayment).await?;
+
+    crate::bot::user::payment::send_payment_options(bot, chat_id, payment_provider).await
+}
