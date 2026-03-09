@@ -33,29 +33,29 @@ pub fn create_router(state: WebState) -> Router {
         .route("/api/phases", get(routes::phases::list).post(routes::phases::create))
         .route("/api/phases/reorder", put(routes::phases::reorder))
         .route(
-            "/api/phases/:id",
+            "/api/phases/{id}",
             put(routes::phases::update).delete(routes::phases::delete),
         )
         // Questions
         .route(
-            "/api/phases/:phase_id/questions",
+            "/api/phases/{phase_id}/questions",
             get(routes::questions::list_by_phase).post(routes::questions::create),
         )
         .route(
-            "/api/questions/:id",
+            "/api/questions/{id}",
             put(routes::questions::update).delete(routes::questions::delete),
         )
         .route("/api/questions/reorder", put(routes::questions::reorder))
         // Options
         .route(
-            "/api/questions/:question_id/options",
+            "/api/questions/{question_id}/options",
             get(routes::questions::list_options).post(routes::questions::create_option),
         )
         .route(
-            "/api/options/:id",
+            "/api/options/{id}",
             put(routes::questions::update_option).delete(routes::questions::delete_option),
         )
-        // Invite Rules (static routes before :id param routes)
+        // Invite Rules (static routes before {id} param routes)
         .route(
             "/api/invite-rules/reorder",
             put(routes::invite_rules::reorder),
@@ -65,19 +65,19 @@ pub fn create_router(state: WebState) -> Router {
             get(routes::invite_rules::available_questions),
         )
         .route(
-            "/api/phases/:phase_id/invite-rules",
+            "/api/phases/{phase_id}/invite-rules",
             get(routes::invite_rules::list_by_phase).post(routes::invite_rules::create),
         )
         .route(
-            "/api/invite-rules/:id",
+            "/api/invite-rules/{id}",
             put(routes::invite_rules::update).delete(routes::invite_rules::delete),
         )
         .route(
-            "/api/invite-rules/:invite_rule_id/conditions",
+            "/api/invite-rules/{invite_rule_id}/conditions",
             get(routes::invite_rules::list_conditions).post(routes::invite_rules::create_condition),
         )
         .route(
-            "/api/invite-rule-conditions/:id",
+            "/api/invite-rule-conditions/{id}",
             delete(routes::invite_rules::delete_condition),
         )
         // Groups
@@ -86,15 +86,15 @@ pub fn create_router(state: WebState) -> Router {
             get(routes::groups::list).post(routes::groups::create),
         )
         .route(
-            "/api/groups/:id",
+            "/api/groups/{id}",
             put(routes::groups::update).delete(routes::groups::delete),
         )
         // Users
         .route("/api/users", get(routes::users::list))
-        .route("/api/users/:id", get(routes::users::get))
-        .route("/api/users/:id/answers", get(routes::users::get_answers))
+        .route("/api/users/{id}", get(routes::users::get))
+        .route("/api/users/{id}/answers", get(routes::users::get_answers))
         .route(
-            "/api/users/:id/invite_links",
+            "/api/users/{id}/invite_links",
             get(routes::users::get_invite_links),
         )
         // Payments
@@ -102,25 +102,25 @@ pub fn create_router(state: WebState) -> Router {
         // Settings
         .route("/api/settings", get(routes::settings::list))
         .route(
-            "/api/settings/:key",
+            "/api/settings/{key}",
             get(routes::settings::get).put(routes::settings::update),
         )
         .route("/api/debug/livepix-token", get(routes::settings::livepix_token))
         // Admin actions
         .route(
-            "/api/admin/send-invites/:user_id",
+            "/api/admin/send-invites/{user_id}",
             post(routes::admin::send_invites),
         )
         .route(
-            "/api/admin/revoke-links/:user_id",
+            "/api/admin/revoke-links/{user_id}",
             post(routes::admin::revoke_links),
         )
         .route(
-            "/api/admin/reset-registration/:user_id",
+            "/api/admin/reset-registration/{user_id}",
             post(routes::admin::reset_registration),
         )
         .route(
-            "/api/admin/unregister/:user_id",
+            "/api/admin/unregister/{user_id}",
             post(routes::admin::unregister),
         )
         .route(
@@ -140,10 +140,7 @@ pub fn create_router(state: WebState) -> Router {
     let uploads = Router::new().nest_service("/uploads", ServeDir::new("uploads"));
 
     // ── SPA fallback — serves static/ (built Svelte app) ─────────────────
-    let spa = Router::new().nest_service(
-        "/",
-        ServeDir::new("static").fallback(ServeFile::new("static/index.html")),
-    );
+    let spa = ServeDir::new("static").fallback(ServeFile::new("static/index.html"));
 
     Router::new()
         .merge(public)

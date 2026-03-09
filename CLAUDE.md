@@ -99,7 +99,7 @@ src/
         ├── groups.rs     Groups CRUD
         ├── users.rs      Users list + answers + invite links
         ├── payments.rs   Payments list + POST /api/webhooks/payment (no auth)
-        └── admin.rs      POST /api/admin/send-invites/:id, /revoke-links/:id
+        └── admin.rs      POST /api/admin/send-invites/{id}, /revoke-links/{id}
 ```
 
 ## Bot dialogue state machine
@@ -150,27 +150,27 @@ Exception: `POST /api/webhooks/payment` is public (verified by Bearer token from
 ```
 Phases:       GET/POST /api/phases
               PUT      /api/phases/reorder          [{id, position}]
-              PUT/DEL  /api/phases/:id
+              PUT/DEL  /api/phases/{id}
 
-Questions:    GET/POST /api/phases/:phase_id/questions
-              PUT/DEL  /api/questions/:id
+Questions:    GET/POST /api/phases/{phase_id}/questions
+              PUT/DEL  /api/questions/{id}
               PUT      /api/questions/reorder
 
-Options:      GET/POST /api/questions/:question_id/options
-              PUT/DEL  /api/options/:id
+Options:      GET/POST /api/questions/{question_id}/options
+              PUT/DEL  /api/options/{id}
 
-Groups:       GET/POST/PUT/DEL /api/groups, /api/groups/:id
+Groups:       GET/POST/PUT/DEL /api/groups, /api/groups/{id}
 
 Users:        GET /api/users                        ?page=&limit=
-              GET /api/users/:id
-              GET /api/users/:id/answers
-              GET /api/users/:id/invite_links
+              GET /api/users/{id}
+              GET /api/users/{id}/answers
+              GET /api/users/{id}/invite_links
 
 Payments:     GET  /api/payments                    ?status=
               POST /api/webhooks/payment             (no auth)
 
-Admin:        POST /api/admin/send-invites/:user_id
-              POST /api/admin/revoke-links/:user_id
+Admin:        POST /api/admin/send-invites/{user_id}
+              POST /api/admin/revoke-links/{user_id}
 ```
 
 The Svelte SPA is served from `static/` as a fallback. Build it with:
