@@ -36,6 +36,7 @@ impl IntoResponse for AppError {
             AppError::BadRequest(m) => (StatusCode::BAD_REQUEST, m.clone()),
             _ => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
         };
+        tracing::warn!("HTTP {} — {}", status.as_u16(), message);
         (status, Json(serde_json::json!({ "error": message }))).into_response()
     }
 }

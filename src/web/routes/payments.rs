@@ -35,7 +35,15 @@ pub async fn webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<StatusCode> {
-    let event = s.payment_provider.verify_webhook(&headers, &body).await?;
+    tracing::info!(
+        "Webhook received: content_type={} body_len={} body={}",
+        headers.get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("-"),
+        body.len(),
+        String::from_utf8_lossy(&body)
+    );
+
+    let event = s.payment_provider.verify_webhook(&headers, &body).await
+        .map_err(|e| { tracing::warn!("Webhook verification failed: {e}"); e })?;
 
     match event {
         WebhookEvent::Completed { external_ref, payload, amount, currency } => {
