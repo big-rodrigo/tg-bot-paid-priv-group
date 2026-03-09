@@ -2,11 +2,13 @@ mod bot;
 mod config;
 mod db;
 mod error;
+mod i18n;
 mod payment;
 mod web;
 
 use std::{net::SocketAddr, str::FromStr, sync::Arc};
 use tokio::net::TcpListener;
+use tokio::sync::RwLock;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use config::AppConfig;
@@ -58,6 +60,15 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("Database migrations applied");
 
+    // Load language setting
+    let lang_code: String =
+        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'language'")
+            .fetch_optional(&pool)
+            .await?
+            .unwrap_or_else(|| "en".to_string());
+    let lang = Arc::new(RwLock::new(i18n::Lang::from_code(&lang_code)));
+    tracing::info!("Language: {}", lang_code);
+
     // Create in-memory dialogue storage (state resets on restart; swap for a
     // persistent implementation if needed — see src/bot/state.rs for notes).
     let storage = bot::state::create_storage();
@@ -97,6 +108,7 @@ async fn main() -> anyhow::Result<()> {
         bot: telegram_bot.clone(),
         config: Arc::clone(&config),
         payment_provider: Arc::clone(&payment_provider),
+        lang: Arc::clone(&lang),
     };
 
     // ── Spawn tasks ──────────────────────────────────────────────────────
@@ -105,6 +117,7 @@ async fn main() -> anyhow::Result<()> {
     let bot_config = Arc::clone(&config);
     let bot_provider = Arc::clone(&payment_provider);
     let bot_storage = Arc::clone(&storage);
+    let bot_lang = Arc::clone(&lang);
 
     let bot_task = tokio::spawn(async move {
         tracing::info!("Bot dispatcher starting");
@@ -114,6 +127,7 @@ async fn main() -> anyhow::Result<()> {
             bot_pool,
             bot_config,
             bot_provider,
+            bot_lang,
         )
         .await;
     });

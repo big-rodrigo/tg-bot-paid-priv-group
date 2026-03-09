@@ -67,10 +67,45 @@ export const users = {
   list: (page = 1, limit = 50) =>
     request<import('./types').User[]>('GET', `/users?page=${page}&limit=${limit}`),
   get: (id: number) => request<{ user: import('./types').User; registration: unknown }>('GET', `/users/${id}`),
-  getAnswers: (id: number) => request<unknown[]>('GET', `/users/${id}/answers`),
+  getAnswers: (id: number) => request<import('./types').EnrichedAnswer[]>('GET', `/users/${id}/answers`),
+  getImageUrl: async (fileId: string): Promise<string> => {
+    const res = await fetch(`${BASE}/admin/telegram-image?file_id=${encodeURIComponent(fileId)}`, {
+      headers: authHeader(),
+    });
+    if (!res.ok) throw new Error('Failed to load image');
+    const blob = await res.blob();
+    return URL.createObjectURL(blob);
+  },
   getInviteLinks: (id: number) => request<import('./types').InviteLink[]>('GET', `/users/${id}/invite_links`),
   sendInvites: (id: number) => request<void>('POST', `/admin/send-invites/${id}`),
   revokeLinks: (id: number) => request<unknown>('POST', `/admin/revoke-links/${id}`),
+  resetRegistration: (id: number) => request<unknown>('POST', `/admin/reset-registration/${id}`),
+  unregister: (id: number) => request<unknown>('POST', `/admin/unregister/${id}`),
+};
+
+// ── Invite Rules ─────────────────────────────────────────────────────────
+export const inviteRules = {
+  listByPhase: (phaseId: number) =>
+    request<import('./types').InviteRule[]>('GET', `/phases/${phaseId}/invite-rules`),
+  create: (phaseId: number, data: { group_id: number; position?: number }) =>
+    request<import('./types').InviteRule>('POST', `/phases/${phaseId}/invite-rules`, data),
+  update: (id: number, data: { group_id: number; position: number }) =>
+    request<import('./types').InviteRule>('PUT', `/invite-rules/${id}`, data),
+  delete: (id: number) => request<void>('DELETE', `/invite-rules/${id}`),
+  reorder: (items: { id: number; position: number }[]) =>
+    request<void>('PUT', '/invite-rules/reorder', items),
+  listConditions: (ruleId: number) =>
+    request<import('./types').InviteRuleCondition[]>('GET', `/invite-rules/${ruleId}/conditions`),
+  createCondition: (ruleId: number, data: {
+    question_id: number;
+    condition_type: string;
+    option_id?: number | null;
+    text_value?: string | null;
+  }) =>
+    request<import('./types').InviteRuleCondition>('POST', `/invite-rules/${ruleId}/conditions`, data),
+  deleteCondition: (id: number) => request<void>('DELETE', `/invite-rule-conditions/${id}`),
+  availableQuestions: () =>
+    request<import('./types').AvailableQuestion[]>('GET', '/invite-rules/questions'),
 };
 
 // ── Settings ──────────────────────────────────────────────────────────────

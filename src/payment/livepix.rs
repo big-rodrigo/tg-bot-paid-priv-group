@@ -11,6 +11,7 @@ use crate::{
     error::{AppError, Result},
 };
 
+use crate::i18n;
 use super::{PaymentInitiation, PaymentProvider, WebhookEvent};
 
 pub struct LivePixProvider {
@@ -151,6 +152,9 @@ impl PaymentProvider for LivePixProvider {
         let price_cents_str = self.read_setting("livepix_price_cents").await?;
         let currency = self.read_setting("livepix_currency").await?;
 
+        let lang_code = self.read_setting("language").await.unwrap_or_else(|_| "en".to_string());
+        let l = i18n::Lang::from_code(&lang_code);
+
         let price_cents: i64 = price_cents_str.parse().unwrap_or(0);
 
         // The identifier is what the user must type as the message on the LivePix page.
@@ -162,15 +166,9 @@ impl PaymentProvider for LivePixProvider {
         let price_display = format!("{:.2}", price_cents as f64 / 100.0);
 
         let instructions = if account_url.is_empty() {
-            "LivePix is not yet configured. Please contact an administrator.".to_string()
+            i18n::livepix_not_configured(l).to_string()
         } else {
-            format!(
-                "To complete your payment:\n\
-                 1. Open the link below\n\
-                 2. In the <b>message</b> field, type exactly: <code>{identifier}</code>\n\
-                 3. Pay at least <b>{currency} {price_display}</b>\n\n\
-                 Your access links will be sent automatically once the payment is confirmed."
-            )
+            i18n::livepix_instructions(l, &identifier, &currency, &price_display)
         };
 
         Ok(PaymentInitiation {

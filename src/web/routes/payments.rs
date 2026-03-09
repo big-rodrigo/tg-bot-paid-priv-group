@@ -58,12 +58,15 @@ pub async fn webhook(
                     // Spawn so the webhook returns quickly
                     let bot = s.bot.clone();
                     let pool = s.db.clone();
+                    let lang = s.lang.clone();
                     tokio::spawn(async move {
+                        let l = *lang.read().await;
                         if let Err(e) = crate::bot::user::invite::deliver_invites(
                             bot,
                             pool,
                             user.id,
                             user.telegram_id,
+                            l,
                         )
                         .await
                         {

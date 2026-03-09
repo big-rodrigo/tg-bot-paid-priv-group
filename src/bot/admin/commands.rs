@@ -1,10 +1,12 @@
 use std::sync::Arc;
-use teloxide::{prelude::*, utils::command::BotCommands};
+use teloxide::prelude::*;
+use tokio::sync::RwLock;
 
 use crate::{
     bot::{commands::AdminCommand, state::HandlerResult},
     config::AppConfig,
     db::{queries, DbPool},
+    i18n::{self, Lang},
 };
 
 pub async fn handle(
@@ -13,17 +15,18 @@ pub async fn handle(
     cmd: AdminCommand,
     pool: DbPool,
     _config: Arc<AppConfig>,
+    lang: Arc<RwLock<Lang>>,
 ) -> HandlerResult {
+    let l = *lang.read().await;
     match cmd {
         AdminCommand::Admin => {
-            let text = AdminCommand::descriptions().to_string();
-            bot.send_message(msg.chat.id, text).await?;
+            bot.send_message(msg.chat.id, i18n::admin_help_text(l)).await?;
         }
 
         AdminCommand::Users => {
             let users = queries::users::list(&pool, 1, 20).await?;
             if users.is_empty() {
-                bot.send_message(msg.chat.id, "No registered users yet.").await?;
+                bot.send_message(msg.chat.id, i18n::admin_no_users(l)).await?;
             } else {
                 let text = users
                     .iter()
@@ -31,7 +34,7 @@ pub async fn handle(
                         format!(
                             "• {} (@{}) — id: {}",
                             u.first_name,
-                            u.username.as_deref().unwrap_or("no username"),
+                            u.username.as_deref().unwrap_or(i18n::admin_no_username(l)),
                             u.telegram_id,
                         )
                     })
@@ -49,18 +52,18 @@ pub async fn handle(
             .fetch_all(&pool)
             .await?;
             if groups.is_empty() {
-                bot.send_message(
-                    msg.chat.id,
-                    "No groups configured. Add them via the web interface.",
-                )
-                .await?;
+                bot.send_message(msg.chat.id, i18n::admin_no_groups(l))
+                    .await?;
             } else {
                 let text = groups
                     .iter()
                     .map(|g| {
                         format!(
-                            "• {} (id: {}, active: {})",
-                            g.title, g.telegram_id, g.active
+                            "• {} (id: {}, {}: {})",
+                            g.title,
+                            g.telegram_id,
+                            if g.active { i18n::admin_active(l) } else { i18n::admin_inactive(l) },
+                            g.active
                         )
                     })
                     .collect::<Vec<_>>()
@@ -72,11 +75,8 @@ pub async fn handle(
         AdminCommand::Phases => {
             let phases = queries::phases::list_all(&pool).await?;
             if phases.is_empty() {
-                bot.send_message(
-                    msg.chat.id,
-                    "No phases configured. Add them via the web interface.",
-                )
-                .await?;
+                bot.send_message(msg.chat.id, i18n::admin_no_phases(l))
+                    .await?;
             } else {
                 let text = phases
                     .iter()
@@ -85,7 +85,7 @@ pub async fn handle(
                             "{}. {} [{}]",
                             p.position,
                             p.name,
-                            if p.active { "active" } else { "inactive" }
+                            if p.active { i18n::admin_active(l) } else { i18n::admin_inactive(l) }
                         )
                     })
                     .collect::<Vec<_>>()
@@ -98,7 +98,7 @@ pub async fn handle(
             let telegram_id: i64 = match args.trim().parse() {
                 Ok(id) => id,
                 Err(_) => {
-                    bot.send_message(msg.chat.id, "Usage: /sendinvites <telegram_id>")
+                    bot.send_message(msg.chat.id, i18n::admin_usage_sendinvites(l))
                         .await?;
                     return Ok(());
                 }
@@ -106,7 +106,7 @@ pub async fn handle(
             let user = queries::users::get_by_telegram_id(&pool, telegram_id).await?;
             match user {
                 None => {
-                    bot.send_message(msg.chat.id, "User not found.").await?;
+                    bot.send_message(msg.chat.id, i18n::admin_user_not_found(l)).await?;
                 }
                 Some(user) => {
                     crate::bot::user::invite::deliver_invites(
@@ -114,13 +114,11 @@ pub async fn handle(
                         pool.clone(),
                         user.id,
                         user.telegram_id,
+                        l,
                     )
                     .await?;
-                    bot.send_message(
-                        msg.chat.id,
-                        format!("Invite links sent to user {}.", telegram_id),
-                    )
-                    .await?;
+                    bot.send_message(msg.chat.id, i18n::admin_invites_sent(l, telegram_id))
+                        .await?;
                 }
             }
         }

@@ -9,16 +9,17 @@ use teloxide::{
     dispatching::UpdateFilterExt,
     dptree,
     prelude::*,
-    utils::command::BotCommands,
 };
+use tokio::sync::RwLock;
 
 use crate::{
     config::AppConfig,
     db::DbPool,
+    i18n::{self, Lang},
     payment::PaymentProvider,
 };
 
-use commands::{AdminCommand, UserCommand};
+use commands::AdminCommand;
 use state::{BotStorage, HandlerResult, State};
 
 /// Build and run the Teloxide dispatcher. This function runs indefinitely.
@@ -28,9 +29,10 @@ pub async fn run_dispatcher(
     pool: DbPool,
     config: Arc<AppConfig>,
     payment_provider: Arc<dyn PaymentProvider + Send + Sync>,
+    lang: Arc<RwLock<Lang>>,
 ) {
     Dispatcher::builder(bot.clone(), build_handler())
-        .dependencies(dptree::deps![storage, pool, config, payment_provider])
+        .dependencies(dptree::deps![storage, pool, config, payment_provider, lang])
         .enable_ctrlc_handler()
         .build()
         .dispatch()
@@ -129,8 +131,9 @@ fn build_handler() -> teloxide::dispatching::UpdateHandler<Box<dyn std::error::E
         .branch(my_chat_member_handler)
 }
 
-async fn handle_help(bot: Bot, msg: Message) -> HandlerResult {
-    bot.send_message(msg.chat.id, UserCommand::descriptions().to_string())
+async fn handle_help(bot: Bot, msg: Message, lang: Arc<RwLock<Lang>>) -> HandlerResult {
+    let l = *lang.read().await;
+    bot.send_message(msg.chat.id, i18n::help_text(l))
         .await?;
     Ok(())
 }

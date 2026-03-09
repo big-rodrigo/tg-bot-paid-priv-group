@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { users, phases, groups, payments } from '../lib/api';
+  import { t } from '../lib/i18n.svelte';
 
   let stats = { users: 0, phases: 0, groups: 0, pending_payments: 0 };
   let loading = true;
@@ -28,21 +29,21 @@
   });
 </script>
 
-<h1>Dashboard</h1>
+<h1>{t('dash.title')}</h1>
 
 {#if loading}
-  <p>Loading...</p>
+  <p>{t('common.loading')}</p>
 {:else if error}
-  <p class="error">Error: {error}</p>
+  <p class="error">{t('common.error')}: {error}</p>
 {:else}
   <div class="stats">
-    <div class="card"><span class="num">{stats.users}</span><span class="label">Users</span></div>
-    <div class="card"><span class="num">{stats.phases}</span><span class="label">Phases</span></div>
-    <div class="card"><span class="num">{stats.groups}</span><span class="label">Groups</span></div>
-    <div class="card warn"><span class="num">{stats.pending_payments}</span><span class="label">Pending Payments</span></div>
+    <div class="card"><span class="num">{stats.users}</span><span class="label">{t('dash.users')}</span></div>
+    <div class="card"><span class="num">{stats.phases}</span><span class="label">{t('dash.phases')}</span></div>
+    <div class="card"><span class="num">{stats.groups}</span><span class="label">{t('dash.groups')}</span></div>
+    <div class="card warn"><span class="num">{stats.pending_payments}</span><span class="label">{t('dash.pendingPayments')}</span></div>
   </div>
 
-  <p>Use the navigation to manage your bot configuration.</p>
+  <p>{t('dash.hint')}</p>
 {/if}
 
 <style>

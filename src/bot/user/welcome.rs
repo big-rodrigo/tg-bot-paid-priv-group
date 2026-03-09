@@ -1,25 +1,13 @@
 use std::sync::Arc;
-use teloxide::{prelude::*, types::{Message, ParseMode}};
+use teloxide::prelude::*;
+use tokio::sync::RwLock;
 
 use crate::{
     bot::state::{BotDialogue, HandlerResult, State},
     db::{queries, DbPool},
+    i18n::{self, Lang},
     payment::PaymentProvider,
 };
-
-async fn send_welcome_message(bot: &Bot, chat_id: teloxide::types::ChatId, pool: &DbPool) -> HandlerResult {
-    let text = sqlx::query_scalar::<_, String>(
-        "SELECT value FROM settings WHERE key = 'welcome_message'",
-    )
-    .fetch_optional(pool)
-    .await?
-    .unwrap_or_else(|| "Welcome! 👋".to_string());
-
-    bot.send_message(chat_id, text)
-        .parse_mode(ParseMode::Html)
-        .await?;
-    Ok(())
-}
 
 pub async fn handle_start(
     bot: Bot,
@@ -27,7 +15,9 @@ pub async fn handle_start(
     msg: Message,
     pool: DbPool,
     payment_provider: Arc<dyn PaymentProvider + Send + Sync>,
+    lang: Arc<RwLock<Lang>>,
 ) -> HandlerResult {
+    let l = *lang.read().await;
     let from = match msg.from.as_ref() {
         Some(u) => u,
         None => return Ok(()),
@@ -54,12 +44,8 @@ pub async fn handle_start(
     if let Some(ref r) = reg {
         // Already fully registered
         if r.completed_at.is_some() {
-            bot.send_message(
-                msg.chat.id,
-                "You are already registered! Check your previous messages for your invite links.\n\
-                 If you need help, contact an administrator.",
-            )
-            .await?;
+            bot.send_message(msg.chat.id, i18n::already_registered(l))
+                .await?;
             dialogue.update(State::Registered).await?;
             return Ok(());
         }
@@ -70,17 +56,14 @@ pub async fn handle_start(
         {
             let question = queries::questions::get_by_id(&pool, question_id).await?;
             if let Some(question) = question {
-                send_welcome_message(&bot, msg.chat.id, &pool).await?;
-                bot.send_message(
-                    msg.chat.id,
-                    "Resuming your registration from where you left off.",
-                )
-                .await?;
+                bot.send_message(msg.chat.id, i18n::resuming_registration(l))
+                    .await?;
                 crate::bot::user::registration::send_question(
                     &bot,
                     msg.chat.id,
                     &pool,
                     &question,
+                    l,
                 )
                 .await?;
                 dialogue
@@ -93,15 +76,12 @@ pub async fn handle_start(
     }
 
     // Fresh start: find first active phase
-    let phases = queries::phases::list_active(&pool).await?;
+    let phases = queries::phases::list_active_normal(&pool).await?;
     let first_phase = match phases.into_iter().next() {
         Some(p) => p,
         None => {
-            bot.send_message(
-                msg.chat.id,
-                "Registration is not yet configured. Please check back later.",
-            )
-            .await?;
+            bot.send_message(msg.chat.id, i18n::not_configured(l))
+                .await?;
             return Ok(());
         }
     };
@@ -120,8 +100,6 @@ pub async fn handle_start(
     .execute(&pool)
     .await?;
 
-    send_welcome_message(&bot, msg.chat.id, &pool).await?;
-
     // Start from the first question of the first phase (handles leading info blocks)
     crate::bot::user::registration::start_phase(
         &bot,
@@ -131,11 +109,18 @@ pub async fn handle_start(
         msg.chat.id,
         user.id,
         first_phase.id,
+        l,
     )
     .await
 }
 
-pub async fn handle_status(bot: Bot, msg: Message, pool: DbPool) -> HandlerResult {
+pub async fn handle_status(
+    bot: Bot,
+    msg: Message,
+    pool: DbPool,
+    lang: Arc<RwLock<Lang>>,
+) -> HandlerResult {
+    let l = *lang.read().await;
     let from = match msg.from.as_ref() {
         Some(u) => u,
         None => return Ok(()),
@@ -144,7 +129,7 @@ pub async fn handle_status(bot: Bot, msg: Message, pool: DbPool) -> HandlerResul
     let user = queries::users::get_by_telegram_id(&pool, from.id.0 as i64).await?;
     match user {
         None => {
-            bot.send_message(msg.chat.id, "You haven't started registration yet. Send /start to begin.").await?;
+            bot.send_message(msg.chat.id, i18n::not_started(l)).await?;
         }
         Some(user) => {
             let reg = sqlx::query_as::<_, crate::db::models::UserRegistration>(
@@ -155,12 +140,13 @@ pub async fn handle_status(bot: Bot, msg: Message, pool: DbPool) -> HandlerResul
             .await?;
 
             let status = match reg {
-                None => "Not started",
-                Some(r) if r.completed_at.is_some() => "Registered ✅",
-                Some(_) => "In progress ⏳",
+                None => i18n::status_not_started(l),
+                Some(r) if r.completed_at.is_some() => i18n::status_registered(l),
+                Some(_) => i18n::status_in_progress(l),
             };
 
-            bot.send_message(msg.chat.id, format!("Registration status: {status}")).await?;
+            bot.send_message(msg.chat.id, i18n::status_format(l, status))
+                .await?;
         }
     }
 

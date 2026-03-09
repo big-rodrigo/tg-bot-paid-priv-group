@@ -27,6 +27,7 @@ pub struct Phase {
     pub description: Option<String>,
     pub position: i64,
     pub active: bool,
+    pub phase_type: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -87,6 +88,24 @@ pub struct Payment {
 pub struct Setting {
     pub key: String,
     pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct InviteRule {
+    pub id: i64,
+    pub phase_id: i64,
+    pub group_id: i64,
+    pub position: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct InviteRuleCondition {
+    pub id: i64,
+    pub invite_rule_id: i64,
+    pub question_id: i64,
+    pub condition_type: String,
+    pub option_id: Option<i64>,
+    pub text_value: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

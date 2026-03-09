@@ -1,0 +1,223 @@
+export type Lang = 'en' | 'pt-BR';
+
+let currentLang: Lang = $state('en');
+
+export function setLang(lang: Lang) {
+  currentLang = lang;
+}
+
+export function getLang(): Lang {
+  return currentLang;
+}
+
+export function t(key: string): string {
+  return translations[key]?.[currentLang] ?? key;
+}
+
+const translations: Record<string, Record<Lang, string>> = {
+  // ── Common ──
+  'common.loading': { en: 'Loading...', 'pt-BR': 'Carregando...' },
+  'common.loadingAlt': { en: 'Loading…', 'pt-BR': 'Carregando…' },
+  'common.error': { en: 'Error', 'pt-BR': 'Erro' },
+  'common.save': { en: 'Save', 'pt-BR': 'Salvar' },
+  'common.saving': { en: 'Saving…', 'pt-BR': 'Salvando…' },
+  'common.saved': { en: 'Saved!', 'pt-BR': 'Salvo!' },
+  'common.cancel': { en: 'Cancel', 'pt-BR': 'Cancelar' },
+  'common.delete': { en: 'Delete', 'pt-BR': 'Excluir' },
+  'common.enable': { en: 'Enable', 'pt-BR': 'Ativar' },
+  'common.disable': { en: 'Disable', 'pt-BR': 'Desativar' },
+  'common.remove': { en: 'Remove', 'pt-BR': 'Remover' },
+  'common.refresh': { en: 'Refresh', 'pt-BR': 'Atualizar' },
+  'common.actions': { en: 'Actions', 'pt-BR': 'Ações' },
+
+  // ── Auth ──
+  'auth.prompt': { en: 'Enter admin secret:', 'pt-BR': 'Digite a senha de administrador:' },
+
+  // ── Nav ──
+  'nav.title': { en: 'TG Bot Admin', 'pt-BR': 'TG Bot Admin' },
+  'nav.dashboard': { en: 'Dashboard', 'pt-BR': 'Painel' },
+  'nav.phases': { en: 'Phases', 'pt-BR': 'Fases' },
+  'nav.groups': { en: 'Groups', 'pt-BR': 'Grupos' },
+  'nav.users': { en: 'Users', 'pt-BR': 'Usuários' },
+  'nav.payments': { en: 'Payments', 'pt-BR': 'Pagamentos' },
+  'nav.settings': { en: 'Settings', 'pt-BR': 'Configurações' },
+
+  // ── Dashboard ──
+  'dash.title': { en: 'Dashboard', 'pt-BR': 'Painel' },
+  'dash.users': { en: 'Users', 'pt-BR': 'Usuários' },
+  'dash.phases': { en: 'Phases', 'pt-BR': 'Fases' },
+  'dash.groups': { en: 'Groups', 'pt-BR': 'Grupos' },
+  'dash.pendingPayments': { en: 'Pending Payments', 'pt-BR': 'Pagamentos Pendentes' },
+  'dash.hint': { en: 'Use the navigation to manage your bot configuration.', 'pt-BR': 'Use a navegação para gerenciar a configuração do seu bot.' },
+
+  // ── Phases ──
+  'phases.title': { en: 'Phases & Questions', 'pt-BR': 'Fases & Perguntas' },
+  'phases.subtitle': { en: 'Build your registration flow by creating phases and adding questions to each one.', 'pt-BR': 'Construa seu fluxo de cadastro criando fases e adicionando perguntas a cada uma.' },
+  'phases.sidebar': { en: 'Phases', 'pt-BR': 'Fases' },
+  'phases.none': { en: 'No phases yet.', 'pt-BR': 'Nenhuma fase ainda.' },
+  'phases.newPhase': { en: 'New phase', 'pt-BR': 'Nova fase' },
+  'phases.phaseName': { en: 'Phase name', 'pt-BR': 'Nome da fase' },
+  'phases.descOptional': { en: 'Description (optional)', 'pt-BR': 'Descrição (opcional)' },
+  'phases.typeNormal': { en: 'Normal (questions)', 'pt-BR': 'Normal (perguntas)' },
+  'phases.typeInvite': { en: 'Invite (conditional links)', 'pt-BR': 'Convite (links condicionais)' },
+  'phases.addPhase': { en: '+ Add Phase', 'pt-BR': '+ Adicionar Fase' },
+  'phases.moveUp': { en: 'Move up', 'pt-BR': 'Mover para cima' },
+  'phases.moveDown': { en: 'Move down', 'pt-BR': 'Mover para baixo' },
+  'phases.selectPhase': { en: 'Select a phase from the sidebar to manage its contents', 'pt-BR': 'Selecione uma fase na barra lateral para gerenciar seu conteúdo' },
+  'phases.deletePhaseConfirm': { en: 'Delete this phase and all its contents?', 'pt-BR': 'Excluir esta fase e todo o seu conteúdo?' },
+  'phases.inviteBadge': { en: 'Invite Phase', 'pt-BR': 'Fase de Convite' },
+  'phases.menuInviteBadge': {en: 'Invite', 'pt-BR': 'Convite' },
+  'phases.menuActiveBadge': {en: 'Active', 'pt-BR': 'Ativo' },
+
+  // Questions
+  'phases.questions': { en: 'question', 'pt-BR': 'pergunta' },
+  'phases.questionsPlural': { en: 'questions', 'pt-BR': 'perguntas' },
+  'phases.addQuestion': { en: '+ Add Question', 'pt-BR': '+ Adicionar Pergunta' },
+  'phases.cancelAdd': { en: '✕ Cancel', 'pt-BR': '✕ Cancelar' },
+  'phases.content': { en: 'Content', 'pt-BR': 'Conteúdo' },
+  'phases.typeText': { en: 'Text answer', 'pt-BR': 'Resposta de texto' },
+  'phases.typeButton': { en: 'Button choice', 'pt-BR': 'Escolha por botão' },
+  'phases.typeImage': { en: 'Image upload', 'pt-BR': 'Upload de imagem' },
+  'phases.typeInfo': { en: 'Info block', 'pt-BR': 'Bloco informativo' },
+  'phases.infoHint': { en: 'Info blocks are sent to users without requiring a response.', 'pt-BR': 'Blocos informativos são enviados aos usuários sem exigir resposta.' },
+  'phases.addQuestionBtn': { en: 'Add Question', 'pt-BR': 'Adicionar Pergunta' },
+  'phases.noQuestions': { en: 'No questions yet. Click "Add Question" to start.', 'pt-BR': 'Nenhuma pergunta ainda. Clique em "Adicionar Pergunta" para começar.' },
+  'phases.deleteItemConfirm': { en: 'Delete this item?', 'pt-BR': 'Excluir este item?' },
+  'phases.clickToChangeType': { en: 'Click to change type', 'pt-BR': 'Clique para alterar o tipo' },
+
+  // Type badges
+  'phases.badgeText': { en: 'Text', 'pt-BR': 'Texto' },
+  'phases.badgeButton': { en: 'Button', 'pt-BR': 'Botão' },
+  'phases.badgeImage': { en: 'Image', 'pt-BR': 'Imagem' },
+  'phases.badgeInfo': { en: 'Info Block', 'pt-BR': 'Bloco Info' },
+
+  // Button options
+  'phases.buttonOptions': { en: 'Button options', 'pt-BR': 'Opções de botão' },
+  'phases.noOptions': { en: 'No options yet', 'pt-BR': 'Nenhuma opção ainda' },
+  'phases.buttonLabel': { en: 'Button label', 'pt-BR': 'Rótulo do botão' },
+  'phases.valueDefault': { en: 'Value (defaults to label)', 'pt-BR': 'Valor (padrão = rótulo)' },
+  'phases.addOption': { en: '+ Add', 'pt-BR': '+ Adicionar' },
+
+  // Invite phase
+  'phases.items': { en: 'item', 'pt-BR': 'item' },
+  'phases.itemsPlural': { en: 'items', 'pt-BR': 'itens' },
+  'phases.addInfoBlock': { en: '+ Info Block', 'pt-BR': '+ Bloco Info' },
+  'phases.addInviteRule': { en: '+ Invite Rule', 'pt-BR': '+ Regra de Convite' },
+  'phases.infoBlockContent': { en: 'Info block content', 'pt-BR': 'Conteúdo do bloco informativo' },
+  'phases.infoBlockPlaceholder': { en: 'Info block text...', 'pt-BR': 'Texto do bloco informativo...' },
+  'phases.infoBlockDeliveryHint': { en: 'Info blocks are sent to users as messages during invite delivery.', 'pt-BR': 'Blocos informativos são enviados como mensagens durante a entrega de convites.' },
+  'phases.addInfoBlockBtn': { en: 'Add Info Block', 'pt-BR': 'Adicionar Bloco Info' },
+  'phases.selectGroup': { en: 'Select group', 'pt-BR': 'Selecionar grupo' },
+  'phases.chooseGroup': { en: 'Choose a group...', 'pt-BR': 'Escolha um grupo...' },
+  'phases.conditionsAfterCreate': { en: 'Conditions can be added after creating the rule.', 'pt-BR': 'Condições podem ser adicionadas após criar a regra.' },
+  'phases.addRuleBtn': { en: 'Add Rule', 'pt-BR': 'Adicionar Regra' },
+  'phases.allGroupsHaveRules': { en: 'All groups already have rules in this phase.', 'pt-BR': 'Todos os grupos já têm regras nesta fase.' },
+  'phases.noItems': { en: 'No items yet. Add info blocks or invite rules above.', 'pt-BR': 'Nenhum item ainda. Adicione blocos informativos ou regras de convite acima.' },
+  'phases.inviteRule': { en: 'Invite Rule', 'pt-BR': 'Regra de Convite' },
+  'phases.conditions': { en: 'condition', 'pt-BR': 'condição' },
+  'phases.conditionsPlural': { en: 'conditions', 'pt-BR': 'condições' },
+  'phases.alwaysSends': { en: 'Always sends (no conditions)', 'pt-BR': 'Sempre envia (sem condições)' },
+  'phases.wasSelected': { en: 'was selected', 'pt-BR': 'foi selecionado' },
+  'phases.wasNotSelected': { en: 'was NOT selected', 'pt-BR': 'NÃO foi selecionado' },
+  'phases.contains': { en: 'contains', 'pt-BR': 'contém' },
+  'phases.doesNotContain': { en: 'does NOT contain', 'pt-BR': 'NÃO contém' },
+  'phases.selectQuestion': { en: 'Select question...', 'pt-BR': 'Selecionar pergunta...' },
+  'phases.conditionType': { en: 'Condition...', 'pt-BR': 'Condição...' },
+  'phases.optionSelected': { en: 'Option was selected', 'pt-BR': 'Opção foi selecionada' },
+  'phases.optionNotSelected': { en: 'Option was NOT selected', 'pt-BR': 'Opção NÃO foi selecionada' },
+  'phases.textContains': { en: 'Text contains', 'pt-BR': 'Texto contém' },
+  'phases.textNotContains': { en: 'Text does NOT contain', 'pt-BR': 'Texto NÃO contém' },
+  'phases.selectOption': { en: 'Select option...', 'pt-BR': 'Selecionar opção...' },
+  'phases.searchText': { en: 'Search text...', 'pt-BR': 'Texto de busca...' },
+  'phases.saveCondition': { en: 'Save Condition', 'pt-BR': 'Salvar Condição' },
+  'phases.addCondition': { en: '+ Add Condition', 'pt-BR': '+ Adicionar Condição' },
+  'phases.deleteRuleConfirm': { en: 'Delete this invite rule and its conditions?', 'pt-BR': 'Excluir esta regra de convite e suas condições?' },
+  'phases.removeCondition': { en: 'Remove condition', 'pt-BR': 'Remover condição' },
+
+  // ── Groups ──
+  'groups.title': { en: 'Groups', 'pt-BR': 'Grupos' },
+  'groups.subtitle': { en: 'Add the groups this bot manages. The bot must be an administrator of each group with permission to create invite links.', 'pt-BR': 'Adicione os grupos que este bot gerencia. O bot deve ser administrador de cada grupo com permissão para criar links de convite.' },
+  'groups.telegramIdPlaceholder': { en: 'Telegram group ID (e.g. -1001234567890)', 'pt-BR': 'ID do grupo no Telegram (ex: -1001234567890)' },
+  'groups.titlePlaceholder': { en: 'Group title', 'pt-BR': 'Título do grupo' },
+  'groups.addGroup': { en: 'Add Group', 'pt-BR': 'Adicionar Grupo' },
+  'groups.none': { en: 'No groups configured yet.', 'pt-BR': 'Nenhum grupo configurado ainda.' },
+  'groups.id': { en: 'ID', 'pt-BR': 'ID' },
+  'groups.telegramId': { en: 'Telegram ID', 'pt-BR': 'ID do Telegram' },
+  'groups.titleHeader': { en: 'Title', 'pt-BR': 'Título' },
+  'groups.active': { en: 'Active', 'pt-BR': 'Ativo' },
+  'groups.removeConfirm': { en: 'Remove this group?', 'pt-BR': 'Remover este grupo?' },
+
+  // ── Users ──
+  'users.title': { en: 'Users', 'pt-BR': 'Usuários' },
+  'users.none': { en: 'No users yet.', 'pt-BR': 'Nenhum usuário ainda.' },
+  'users.noUsername': { en: 'no username', 'pt-BR': 'sem username' },
+  'users.selectUser': { en: 'Select a user to view details.', 'pt-BR': 'Selecione um usuário para ver os detalhes.' },
+  'users.telegramId': { en: 'Telegram ID:', 'pt-BR': 'ID do Telegram:' },
+  'users.username': { en: 'Username:', 'pt-BR': 'Username:' },
+  'users.registered': { en: 'Registered:', 'pt-BR': 'Registrado em:' },
+  'users.registrationStatus': { en: 'Registration status:', 'pt-BR': 'Status do cadastro:' },
+  'users.statusNotStarted': { en: 'Not started', 'pt-BR': 'Não iniciado' },
+  'users.statusCompleted': { en: 'Completed', 'pt-BR': 'Concluído' },
+  'users.statusInProgress': { en: 'In progress', 'pt-BR': 'Em andamento' },
+  'users.statusStarted': { en: 'Started', 'pt-BR': 'Iniciado' },
+  'users.sendInvites': { en: 'Send Invite Links', 'pt-BR': 'Enviar Links de Convite' },
+  'users.revokeLinks': { en: 'Revoke Unused Links', 'pt-BR': 'Revogar Links Não Usados' },
+  'users.resetRegistration': { en: 'Reset Registration', 'pt-BR': 'Reiniciar Cadastro' },
+  'users.unregister': { en: 'Unregister', 'pt-BR': 'Descadastrar' },
+  'users.invitesSent': { en: 'Invite links sent!', 'pt-BR': 'Links de convite enviados!' },
+  'users.linksRevoked': { en: 'Links revoked.', 'pt-BR': 'Links revogados.' },
+  'users.resetSuccess': { en: 'Registration reset. User can now /start again.', 'pt-BR': 'Cadastro reiniciado. O usuário pode enviar /start novamente.' },
+  'users.unregisterSuccess': { en: 'User fully unregistered.', 'pt-BR': 'Usuário totalmente descadastrado.' },
+  'users.revokeConfirm': { en: 'Revoke all unused invite links for this user?', 'pt-BR': 'Revogar todos os links de convite não usados deste usuário?' },
+  'users.inviteLinks': { en: 'Invite Links', 'pt-BR': 'Links de Convite' },
+  'users.noLinks': { en: 'No links yet.', 'pt-BR': 'Nenhum link ainda.' },
+  'users.used': { en: 'used', 'pt-BR': 'usado' },
+  'users.revoked': { en: 'revoked', 'pt-BR': 'revogado' },
+  'users.unused': { en: 'unused', 'pt-BR': 'não usado' },
+  'users.answers': { en: 'Answers', 'pt-BR': 'Respostas' },
+  'users.noAnswers': { en: 'No answers yet.', 'pt-BR': 'Nenhuma resposta ainda.' },
+  'users.typeText': { en: 'Text', 'pt-BR': 'Texto' },
+  'users.typeButton': { en: 'Button', 'pt-BR': 'Botão' },
+  'users.typeImage': { en: 'Image', 'pt-BR': 'Imagem' },
+  'users.loadingImage': { en: 'Loading image...', 'pt-BR': 'Carregando imagem...' },
+  'users.imageError': { en: 'Failed to load image', 'pt-BR': 'Falha ao carregar imagem' },
+  'users.download': { en: 'Download', 'pt-BR': 'Baixar' },
+
+  // ── Payments ──
+  'payments.title': { en: 'Payments', 'pt-BR': 'Pagamentos' },
+  'payments.filterByStatus': { en: 'Filter by status:', 'pt-BR': 'Filtrar por status:' },
+  'payments.all': { en: 'All', 'pt-BR': 'Todos' },
+  'payments.pending': { en: 'Pending', 'pt-BR': 'Pendente' },
+  'payments.completed': { en: 'Completed', 'pt-BR': 'Concluído' },
+  'payments.failed': { en: 'Failed', 'pt-BR': 'Falhou' },
+  'payments.refunded': { en: 'Refunded', 'pt-BR': 'Reembolsado' },
+  'payments.none': { en: 'No payments found.', 'pt-BR': 'Nenhum pagamento encontrado.' },
+  'payments.id': { en: 'ID', 'pt-BR': 'ID' },
+  'payments.userId': { en: 'User ID', 'pt-BR': 'ID do Usuário' },
+  'payments.provider': { en: 'Provider', 'pt-BR': 'Provedor' },
+  'payments.status': { en: 'Status', 'pt-BR': 'Status' },
+  'payments.amount': { en: 'Amount', 'pt-BR': 'Valor' },
+  'payments.reference': { en: 'Reference', 'pt-BR': 'Referência' },
+  'payments.created': { en: 'Created', 'pt-BR': 'Criado em' },
+
+  // ── Settings ──
+  'settings.title': { en: 'Settings', 'pt-BR': 'Configurações' },
+  'settings.language': { en: 'Language', 'pt-BR': 'Idioma' },
+  'settings.languageHint': { en: 'Select the language for the bot messages and admin interface.', 'pt-BR': 'Selecione o idioma para as mensagens do bot e a interface de administração.' },
+  'settings.livepix': { en: 'LivePix Payment', 'pt-BR': 'Pagamento LivePix' },
+  'settings.livepixHint': { en: 'Configure the LivePix donation page that users will be sent to for payment. Set LIVEPIX_CLIENT_ID and LIVEPIX_CLIENT_SECRET env vars to enable.', 'pt-BR': 'Configure a página de doação do LivePix para onde os usuários serão enviados para pagamento. Defina as variáveis de ambiente LIVEPIX_CLIENT_ID e LIVEPIX_CLIENT_SECRET para ativar.' },
+  'settings.donationUrl': { en: 'Donation page URL', 'pt-BR': 'URL da página de doação' },
+  'settings.donationUrlHint': { en: 'Your LivePix public donation page address.', 'pt-BR': 'Endereço da sua página pública de doação no LivePix.' },
+  'settings.minPrice': { en: 'Minimum price', 'pt-BR': 'Preço mínimo' },
+  'settings.minPriceHint': { en: 'Users must pay at least this amount. Stored as cents internally', 'pt-BR': 'Os usuários devem pagar pelo menos este valor. Armazenado como centavos internamente' },
+  'settings.cents': { en: 'cents', 'pt-BR': 'centavos' },
+  'settings.currencyCode': { en: 'Currency code', 'pt-BR': 'Código da moeda' },
+  'settings.currencyHint': { en: '3-letter currency code, e.g. BRL.', 'pt-BR': 'Código de moeda de 3 letras, ex: BRL.' },
+  'settings.livepixToken': { en: 'LivePix Token (debug)', 'pt-BR': 'Token LivePix (debug)' },
+  'settings.tokenHint': { en: 'Shows the currently cached OAuth2 token for the LivePix API. Use as Authorization: Bearer <token> in local tests.', 'pt-BR': 'Mostra o token OAuth2 atualmente em cache para a API do LivePix. Use como Authorization: Bearer <token> em testes locais.' },
+  'settings.fetchingToken': { en: 'Fetching…', 'pt-BR': 'Buscando…' },
+  'settings.viewToken': { en: 'View cached token', 'pt-BR': 'Ver token em cache' },
+  'settings.copied': { en: 'Copied!', 'pt-BR': 'Copiado!' },
+  'settings.copy': { en: 'Copy', 'pt-BR': 'Copiar' },
+  'settings.noToken': { en: 'No cached token — no authentication with the LivePix API has occurred yet.', 'pt-BR': 'Nenhum token em cache — ainda não houve autenticação com a API do LivePix.' },
+};

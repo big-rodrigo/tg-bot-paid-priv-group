@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use crate::{
     db::models::Setting,
     error::{AppError, Result},
+    i18n::Lang,
     web::state::WebState,
 };
 
@@ -46,6 +47,12 @@ pub async fn update(
     .bind(&body.value)
     .execute(&s.db)
     .await?;
+
+    // Sync in-memory language cache
+    if key == "language" {
+        let mut guard = s.lang.write().await;
+        *guard = Lang::from_code(&body.value);
+    }
 
     let setting = sqlx::query_as::<_, Setting>("SELECT * FROM settings WHERE key = ?")
         .bind(&key)

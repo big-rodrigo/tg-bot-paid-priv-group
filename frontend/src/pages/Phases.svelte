@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { phases, questions, options } from '../lib/api';
-  import type { Phase, Question, QuestionOption } from '../lib/types';
+  import { phases, questions, options, inviteRules, groups as groupsApi } from '../lib/api';
+  import type { Phase, Question, QuestionOption, Group, InviteRule, InviteRuleCondition, AvailableQuestion } from '../lib/types';
   import TelegramEditor from '../lib/TelegramEditor.svelte';
   import { toTelegramHtml } from '../lib/telegramify';
+  import { t } from '../lib/i18n.svelte';
 
   let allPhases: Phase[] = $state([]);
   let selectedPhase: Phase | null = $state(null);
@@ -13,13 +14,36 @@
   let error = $state('');
   let showAddForm = $state(false);
 
-  // Forms
+  // Normal phase forms
   let newPhaseName = $state('');
   let newPhaseDesc = $state('');
-  let newQText = $state('');    // raw Tiptap HTML while composing
+  let newPhaseType: 'normal' | 'invite' = $state('normal');
+  let newQText = $state('');
   let newQType: Question['question_type'] = $state('text');
   let newOptLabel = $state('');
   let newOptValue = $state('');
+
+  // Invite phase state
+  let phaseInviteRules: InviteRule[] = $state([]);
+  let allGroups: Group[] = $state([]);
+  let availableQuestions: AvailableQuestion[] = $state([]);
+  let selectedRuleId: number | null = $state(null);
+  let ruleConditions: Record<number, InviteRuleCondition[]> = $state({});
+
+  // Invite rule add form
+  let showAddRuleForm = $state(false);
+  let newRuleGroupId: number | null = $state(null);
+
+  // Condition add form
+  let addingConditionForRule: number | null = $state(null);
+  let newCondQuestionId: number | null = $state(null);
+  let newCondType = $state('');
+  let newCondOptionId: number | null = $state(null);
+  let newCondTextValue = $state('');
+
+  // Info block form for invite phase
+  let showAddInfoForm = $state(false);
+  let newInfoText = $state('');
 
   async function load() {
     try {
@@ -43,31 +67,65 @@
 
   async function createPhase() {
     if (!newPhaseName.trim()) return;
-    await phases.create({ name: newPhaseName, description: newPhaseDesc || null, position: allPhases.length });
-    newPhaseName = ''; newPhaseDesc = '';
-    await load();
+    try {
+      await phases.create({
+        name: newPhaseName,
+        description: newPhaseDesc || null,
+        position: allPhases.length,
+        phase_type: newPhaseType,
+      });
+      newPhaseName = ''; newPhaseDesc = ''; newPhaseType = 'normal';
+      await load();
+    } catch (e: any) {
+      error = e.message;
+    }
   }
 
   async function deletePhase(id: number) {
-    if (!confirm('Delete this phase and all its questions?')) return;
+    if (!confirm(t('phases.deletePhaseConfirm'))) return;
     await phases.delete(id);
-    if (selectedPhase?.id === id) { selectedPhase = null; phaseQuestions = []; questionOptionsMap = {}; }
+    if (selectedPhase?.id === id) { selectedPhase = null; phaseQuestions = []; questionOptionsMap = {}; phaseInviteRules = []; }
     await load();
   }
 
   async function toggleActive(phase: Phase) {
-    await phases.update(phase.id, { ...phase, active: !phase.active });
-    await load();
+    try {
+      await phases.update(phase.id, { ...phase, active: !phase.active });
+      await load();
+    } catch (e: any) {
+      error = e.message;
+    }
   }
 
   async function selectPhase(phase: Phase) {
     selectedPhase = phase;
     questionOptionsMap = {};
     showAddForm = false;
-    phaseQuestions = await questions.listByPhase(phase.id);
-    await refreshAllOptions(phaseQuestions);
+    showAddRuleForm = false;
+    showAddInfoForm = false;
+    selectedRuleId = null;
+    addingConditionForRule = null;
+
+    if (phase.phase_type === 'invite') {
+      phaseQuestions = await questions.listByPhase(phase.id);
+      phaseInviteRules = await inviteRules.listByPhase(phase.id);
+      allGroups = await groupsApi.list();
+      availableQuestions = await inviteRules.availableQuestions();
+      // Load conditions for all rules
+      const condMap: Record<number, InviteRuleCondition[]> = {};
+      for (const rule of phaseInviteRules) {
+        condMap[rule.id] = await inviteRules.listConditions(rule.id);
+      }
+      ruleConditions = condMap;
+    } else {
+      phaseQuestions = await questions.listByPhase(phase.id);
+      phaseInviteRules = [];
+      ruleConditions = {};
+      await refreshAllOptions(phaseQuestions);
+    }
   }
 
+  // ── Normal phase question functions ──
   async function createQuestion() {
     if (!selectedPhase || !newQText.trim()) return;
     const telegramHtml = toTelegramHtml(newQText);
@@ -84,7 +142,7 @@
   }
 
   async function deleteQuestion(id: number) {
-    if (!confirm('Delete this question?')) return;
+    if (!confirm(t('phases.deleteItemConfirm'))) return;
     await questions.delete(id);
     const { [id]: _, ...rest } = questionOptionsMap;
     questionOptionsMap = rest;
@@ -107,8 +165,14 @@
     questionOptionsMap = { ...questionOptionsMap, [questionId]: await options.list(questionId) };
   }
 
-  function typeLabel(t: Question['question_type']): string {
-    return { text: 'Text', button: 'Button', image: 'Image', info: 'Info Block' }[t] ?? t;
+  function typeLabel(tp: Question['question_type']): string {
+    const map: Record<string, string> = {
+      text: t('phases.badgeText'),
+      button: t('phases.badgeButton'),
+      image: t('phases.badgeImage'),
+      info: t('phases.badgeInfo'),
+    };
+    return map[tp] ?? tp;
   }
 
   let sortedPhases = $derived([...allPhases].sort((a, b) => a.position - b.position));
@@ -118,12 +182,27 @@
     const idx = sortedPhases.findIndex(p => p.id === phase.id);
     const swapIdx = idx + dir;
     if (swapIdx < 0 || swapIdx >= sortedPhases.length) return;
+    try {
+      const other = sortedPhases[swapIdx];
+      await phases.reorder([
+        { id: phase.id, position: other.position },
+        { id: other.id, position: phase.position },
+      ]);
+      await load();
+    } catch (e: any) {
+      error = e.message;
+    }
+  }
+
+  function canMovePhase(phase: Phase, dir: -1 | 1): boolean {
+    const idx = sortedPhases.findIndex(p => p.id === phase.id);
+    const swapIdx = idx + dir;
+    if (swapIdx < 0 || swapIdx >= sortedPhases.length) return false;
     const other = sortedPhases[swapIdx];
-    await phases.reorder([
-      { id: phase.id, position: other.position },
-      { id: other.id, position: phase.position },
-    ]);
-    await load();
+    // Prevent normal after invite
+    if (dir === 1 && phase.phase_type === 'normal' && other.phase_type === 'invite') return false;
+    if (dir === -1 && phase.phase_type === 'invite' && other.phase_type === 'normal') return false;
+    return true;
   }
 
   async function moveQuestion(q: Question, dir: -1 | 1) {
@@ -164,11 +243,143 @@
       questionOptionsMap = rest;
     }
   }
+
+  // ── Invite phase functions ──
+
+  type PhaseItem =
+    | { kind: 'info'; question: Question; position: number }
+    | { kind: 'rule'; rule: InviteRule; position: number };
+
+  let invitePhaseItems = $derived.by(() => {
+    if (!selectedPhase || selectedPhase.phase_type !== 'invite') return [];
+    const items: PhaseItem[] = [];
+    for (const q of phaseQuestions) {
+      if (q.question_type === 'info') {
+        items.push({ kind: 'info', question: q, position: q.position });
+      }
+    }
+    for (const r of phaseInviteRules) {
+      items.push({ kind: 'rule', rule: r, position: r.position });
+    }
+    items.sort((a, b) => a.position - b.position);
+    return items;
+  });
+
+  function getGroupTitle(groupId: number): string {
+    return allGroups.find(g => g.id === groupId)?.title ?? `Group #${groupId}`;
+  }
+
+  function getQuestionLabel(questionId: number): string {
+    const q = availableQuestions.find(aq => aq.id === questionId);
+    if (!q) return `Question #${questionId}`;
+    return `[${q.phase_name}] ${stripHtml(q.text).substring(0, 50)}`;
+  }
+
+  function stripHtml(html: string): string {
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    return div.textContent || div.innerText || '';
+  }
+
+  function getOptionLabel(questionId: number, optionId: number): string {
+    const q = availableQuestions.find(aq => aq.id === questionId);
+    if (!q) return `Option #${optionId}`;
+    const opt = q.options.find(o => o.id === optionId);
+    return opt?.label ?? `Option #${optionId}`;
+  }
+
+  function conditionTypeLabel(ct: string): string {
+    const map: Record<string, string> = {
+      option_selected: t('phases.wasSelected'),
+      option_not_selected: t('phases.wasNotSelected'),
+      text_contains: t('phases.contains'),
+      text_not_contains: t('phases.doesNotContain'),
+    };
+    return map[ct] ?? ct;
+  }
+
+  let usedGroupIds = $derived(new Set(phaseInviteRules.map(r => r.group_id)));
+  let availableGroupsForRule = $derived(allGroups.filter(g => !usedGroupIds.has(g.id)));
+
+  async function createInviteRule() {
+    if (!selectedPhase || !newRuleGroupId) return;
+    const nextPos = invitePhaseItems.length > 0
+      ? Math.max(...invitePhaseItems.map(i => i.position)) + 1
+      : 0;
+    await inviteRules.create(selectedPhase.id, { group_id: newRuleGroupId, position: nextPos });
+    newRuleGroupId = null;
+    showAddRuleForm = false;
+    await selectPhase(selectedPhase);
+  }
+
+  async function deleteInviteRule(id: number) {
+    if (!confirm(t('phases.deleteRuleConfirm'))) return;
+    await inviteRules.delete(id);
+    if (selectedRuleId === id) selectedRuleId = null;
+    if (selectedPhase) await selectPhase(selectedPhase);
+  }
+
+  async function createInfoBlock() {
+    if (!selectedPhase || !newInfoText.trim()) return;
+    const telegramHtml = toTelegramHtml(newInfoText);
+    const nextPos = invitePhaseItems.length > 0
+      ? Math.max(...invitePhaseItems.map(i => i.position)) + 1
+      : 0;
+    await questions.create(selectedPhase.id, {
+      text: telegramHtml,
+      question_type: 'info',
+      position: nextPos,
+      required: false,
+    });
+    newInfoText = '';
+    showAddInfoForm = false;
+    await selectPhase(selectedPhase);
+  }
+
+  // Condition management
+  let selectedCondQuestion = $derived(
+    availableQuestions.find(q => q.id === newCondQuestionId) ?? null
+  );
+
+  function startAddCondition(ruleId: number) {
+    addingConditionForRule = ruleId;
+    newCondQuestionId = null;
+    newCondType = '';
+    newCondOptionId = null;
+    newCondTextValue = '';
+  }
+
+  function cancelAddCondition() {
+    addingConditionForRule = null;
+  }
+
+  async function saveCondition(ruleId: number) {
+    if (!newCondQuestionId || !newCondType) return;
+    await inviteRules.createCondition(ruleId, {
+      question_id: newCondQuestionId,
+      condition_type: newCondType,
+      option_id: newCondType.startsWith('option_') ? newCondOptionId : null,
+      text_value: newCondType.startsWith('text_') ? newCondTextValue : null,
+    });
+    addingConditionForRule = null;
+    ruleConditions = {
+      ...ruleConditions,
+      [ruleId]: await inviteRules.listConditions(ruleId),
+    };
+  }
+
+  async function deleteCondition(condId: number, ruleId: number) {
+    await inviteRules.deleteCondition(condId);
+    ruleConditions = {
+      ...ruleConditions,
+      [ruleId]: await inviteRules.listConditions(ruleId),
+    };
+  }
 </script>
 
 <div class="page-header">
-  <h1>Phases &amp; Questions</h1>
-  <p class="page-desc">Build your registration flow by creating phases and adding questions to each one.</p>
+  <h1>{t('phases.title')}</h1>
+  <p class="page-desc">{t('phases.subtitle')}</p>
 </div>
 
 {#if error}<p class="error">{error}</p>{/if}
@@ -178,15 +389,15 @@
   <!-- ── Phases sidebar ── -->
   <aside class="phases-sidebar">
     <div class="sidebar-header">
-      <span class="sidebar-title">Phases</span>
+      <span class="sidebar-title">{t('phases.sidebar')}</span>
       {#if !loading}<span class="col-count">{allPhases.length}</span>{/if}
     </div>
 
     <div class="sidebar-list">
       {#if loading}
-        <p class="state-msg">Loading…</p>
+        <p class="state-msg">{t('common.loading')}</p>
       {:else if allPhases.length === 0}
-        <p class="state-msg">No phases yet.</p>
+        <p class="state-msg">{t('phases.none')}</p>
       {:else}
         <ul class="phase-list">
           {#each sortedPhases as phase, idx (phase.id)}
@@ -199,19 +410,21 @@
                   <strong class="phase-name">{phase.name}</strong>
                   {#if phase.description}<span class="phase-desc">{phase.description}</span>{/if}
                 </div>
-                {#if phase.active}
-                  <span class="badge badge-active">Active</span>
+                {#if phase.phase_type === 'invite'}
+                  <span class="badge badge-invite">{t('phases.menuInviteBadge')}</span>
+                {:else if phase.active}
+                  <span class="badge badge-active">{t('phases.menuActiveBadge')}</span>
                 {:else}
                   <span class="badge badge-inactive">Off</span>
                 {/if}
               </div>
               <div class="phase-actions">
-                <button class="btn-icon" title="Move up" disabled={idx === 0} onclick={() => movePhase(phase, -1)}>↑</button>
-                <button class="btn-icon" title="Move down" disabled={idx === sortedPhases.length - 1} onclick={() => movePhase(phase, 1)}>↓</button>
+                <button class="btn-icon" title={t('phases.moveUp')} disabled={!canMovePhase(phase, -1)} onclick={() => movePhase(phase, -1)}>&#8593;</button>
+                <button class="btn-icon" title={t('phases.moveDown')} disabled={!canMovePhase(phase, 1)} onclick={() => movePhase(phase, 1)}>&#8595;</button>
                 <button class="btn-sm" onclick={() => toggleActive(phase)}>
-                  {phase.active ? 'Disable' : 'Enable'}
+                  {phase.active ? t('common.disable') : t('common.enable')}
                 </button>
-                <button class="btn-sm danger" onclick={() => deletePhase(phase.id)}>Delete</button>
+                <button class="btn-sm danger" onclick={() => deletePhase(phase.id)}>{t('common.delete')}</button>
               </div>
             </li>
           {/each}
@@ -220,32 +433,209 @@
     </div>
 
     <div class="sidebar-add-form">
-      <p class="add-form-label">New phase</p>
+      <p class="add-form-label">{t('phases.newPhase')}</p>
       <form onsubmit={(e) => { e.preventDefault(); createPhase(); }}>
-        <input bind:value={newPhaseName} placeholder="Phase name" required />
-        <input bind:value={newPhaseDesc} placeholder="Description (optional)" />
-        <button type="submit" class="btn-primary full-width">+ Add Phase</button>
+        <input bind:value={newPhaseName} placeholder={t('phases.phaseName')} required />
+        <input bind:value={newPhaseDesc} placeholder={t('phases.descOptional')} />
+        <select bind:value={newPhaseType} class="phase-type-select">
+          <option value="normal">{t('phases.typeNormal')}</option>
+          <option value="invite">{t('phases.typeInvite')}</option>
+        </select>
+        <button type="submit" class="btn-primary full-width">{t('phases.addPhase')}</button>
       </form>
     </div>
   </aside>
 
-  <!-- ── Questions main area ── -->
+  <!-- ── Main area ── -->
   <main class="questions-main">
 
     {#if !selectedPhase}
       <div class="questions-empty-state">
-        <div class="empty-icon">←</div>
-        <p>Select a phase from the sidebar to manage its questions</p>
+        <div class="empty-icon">&#8592;</div>
+        <p>{t('phases.selectPhase')}</p>
       </div>
 
-    {:else}
+    {:else if selectedPhase.phase_type === 'invite'}
+      <!-- ══════ INVITE PHASE UI ══════ -->
       <div class="questions-header">
         <div class="questions-header-left">
           <h2 class="questions-phase-name">{selectedPhase.name}</h2>
-          <span class="col-count">{phaseQuestions.length} question{phaseQuestions.length === 1 ? '' : 's'}</span>
+          <span class="badge badge-invite">{t('phases.inviteBadge')}</span>
+          <span class="col-count">{invitePhaseItems.length} {invitePhaseItems.length === 1 ? t('phases.items') : t('phases.itemsPlural')}</span>
+        </div>
+        <div class="header-buttons">
+          <button class="btn-primary" onclick={() => { showAddInfoForm = !showAddInfoForm; showAddRuleForm = false; }}>
+            {showAddInfoForm ? `&#10005; ${t('common.cancel')}` : t('phases.addInfoBlock')}
+          </button>
+          <button class="btn-primary btn-invite" onclick={() => { showAddRuleForm = !showAddRuleForm; showAddInfoForm = false; }}>
+            {showAddRuleForm ? `&#10005; ${t('common.cancel')}` : t('phases.addInviteRule')}
+          </button>
+        </div>
+      </div>
+
+      {#if showAddInfoForm}
+        <div class="add-question-form-card">
+          <form onsubmit={(e) => { e.preventDefault(); createInfoBlock(); }}>
+            <div class="form-field">
+              <span class="field-label">{t('phases.infoBlockContent')}</span>
+              <TelegramEditor
+                content=""
+                onchange={(html) => { newInfoText = html; }}
+                placeholder={t('phases.infoBlockPlaceholder')}
+              />
+            </div>
+            <div class="form-bottom-row">
+              <span class="hint">{t('phases.infoBlockDeliveryHint')}</span>
+              <button type="submit" class="btn-primary" style="margin-left: auto">{t('phases.addInfoBlockBtn')}</button>
+            </div>
+          </form>
+        </div>
+      {/if}
+
+      {#if showAddRuleForm}
+        <div class="add-question-form-card">
+          <form onsubmit={(e) => { e.preventDefault(); createInviteRule(); }}>
+            <div class="form-field">
+              <label class="field-label" for="new-rule-group">{t('phases.selectGroup')}</label>
+              {#if availableGroupsForRule.length === 0}
+                <p class="hint">{t('phases.allGroupsHaveRules')}</p>
+              {:else}
+                <select id="new-rule-group" bind:value={newRuleGroupId} required>
+                  <option value={null} disabled selected>{t('phases.chooseGroup')}</option>
+                  {#each availableGroupsForRule as g (g.id)}
+                    <option value={g.id}>{g.title} ({g.telegram_id})</option>
+                  {/each}
+                </select>
+              {/if}
+            </div>
+            <div class="form-bottom-row">
+              <span class="hint">{t('phases.conditionsAfterCreate')}</span>
+              <button type="submit" class="btn-primary" style="margin-left: auto" disabled={!newRuleGroupId}>{t('phases.addRuleBtn')}</button>
+            </div>
+          </form>
+        </div>
+      {/if}
+
+      {#if invitePhaseItems.length === 0 && !showAddInfoForm && !showAddRuleForm}
+        <p class="state-msg-centered">{t('phases.noItems')}</p>
+      {:else}
+        <div class="question-cards">
+          {#each invitePhaseItems as item, idx (item.kind === 'info' ? `info-${item.question.id}` : `rule-${item.rule.id}`)}
+            {#if item.kind === 'info'}
+              <!-- Info block card -->
+              <div class="question-card info-block">
+                <div class="qcard-header">
+                  <span class="pos-badge">#{idx + 1}</span>
+                  <span class="type-badge type-info">{t('phases.badgeInfo')}</span>
+                  <div class="qcard-actions">
+                    <button class="btn-sm danger" onclick={() => deleteQuestion(item.question.id)}>{t('common.delete')}</button>
+                  </div>
+                </div>
+                <div class="qcard-text">{@html item.question.text}</div>
+              </div>
+            {:else}
+              <!-- Invite rule card -->
+              {@const rule = item.rule}
+              {@const conditions = ruleConditions[rule.id] ?? []}
+              <div class="question-card invite-rule-card">
+                <div class="qcard-header">
+                  <span class="pos-badge">#{idx + 1}</span>
+                  <span class="type-badge type-invite">{t('phases.inviteRule')}</span>
+                  <span class="rule-group-name">{getGroupTitle(rule.group_id)}</span>
+                  <div class="qcard-actions">
+                    <span class="col-count">{conditions.length} {conditions.length === 1 ? t('phases.conditions') : t('phases.conditionsPlural')}</span>
+                    <button class="btn-sm danger" onclick={() => deleteInviteRule(rule.id)}>{t('common.delete')}</button>
+                  </div>
+                </div>
+
+                <div class="rule-body">
+                  {#if conditions.length === 0}
+                    <p class="rule-always">{t('phases.alwaysSends')}</p>
+                  {:else}
+                    <div class="conditions-list">
+                      {#each conditions as cond (cond.id)}
+                        <div class="condition-row">
+                          <span class="cond-question">{getQuestionLabel(cond.question_id)}</span>
+                          {#if cond.condition_type.startsWith('option_')}
+                            <span class="cond-operator">{conditionTypeLabel(cond.condition_type)}</span>
+                            <span class="cond-value">{cond.option_id ? getOptionLabel(cond.question_id, cond.option_id) : '?'}</span>
+                          {:else}
+                            <span class="cond-operator">{conditionTypeLabel(cond.condition_type)}</span>
+                            <span class="cond-value">"{cond.text_value ?? ''}"</span>
+                          {/if}
+                          <button class="chip-delete" title={t('phases.removeCondition')} onclick={() => deleteCondition(cond.id, rule.id)}>&#215;</button>
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
+
+                  {#if addingConditionForRule === rule.id}
+                    <div class="add-condition-form">
+                      <div class="cond-form-row">
+                        <select bind:value={newCondQuestionId} class="cond-select">
+                          <option value={null} disabled selected>{t('phases.selectQuestion')}</option>
+                          {#each availableQuestions as aq (aq.id)}
+                            <option value={aq.id}>[{aq.phase_name}] {stripHtml(aq.text).substring(0, 60)}</option>
+                          {/each}
+                        </select>
+                      </div>
+
+                      {#if selectedCondQuestion}
+                        <div class="cond-form-row">
+                          {#if selectedCondQuestion.question_type === 'button'}
+                            <select bind:value={newCondType} class="cond-select">
+                              <option value="" disabled selected>{t('phases.conditionType')}</option>
+                              <option value="option_selected">{t('phases.optionSelected')}</option>
+                              <option value="option_not_selected">{t('phases.optionNotSelected')}</option>
+                            </select>
+                            {#if newCondType}
+                              <select bind:value={newCondOptionId} class="cond-select">
+                                <option value={null} disabled selected>{t('phases.selectOption')}</option>
+                                {#each selectedCondQuestion.options as opt (opt.id)}
+                                  <option value={opt.id}>{opt.label}</option>
+                                {/each}
+                              </select>
+                            {/if}
+                          {:else}
+                            <select bind:value={newCondType} class="cond-select">
+                              <option value="" disabled selected>{t('phases.conditionType')}</option>
+                              <option value="text_contains">{t('phases.textContains')}</option>
+                              <option value="text_not_contains">{t('phases.textNotContains')}</option>
+                            </select>
+                            {#if newCondType}
+                              <input bind:value={newCondTextValue} placeholder={t('phases.searchText')} class="cond-input" />
+                            {/if}
+                          {/if}
+                        </div>
+                      {/if}
+
+                      <div class="cond-form-actions">
+                        <button class="btn-sm" onclick={cancelAddCondition}>{t('common.cancel')}</button>
+                        <button class="btn-sm btn-confirm" onclick={() => saveCondition(rule.id)}
+                          disabled={!newCondQuestionId || !newCondType || (newCondType.startsWith('option_') && !newCondOptionId) || (newCondType.startsWith('text_') && !newCondTextValue.trim())}>
+                          {t('phases.saveCondition')}
+                        </button>
+                      </div>
+                    </div>
+                  {:else}
+                    <button class="btn-sm btn-add-cond" onclick={() => startAddCondition(rule.id)}>{t('phases.addCondition')}</button>
+                  {/if}
+                </div>
+              </div>
+            {/if}
+          {/each}
+        </div>
+      {/if}
+
+    {:else}
+      <!-- ══════ NORMAL PHASE UI ══════ -->
+      <div class="questions-header">
+        <div class="questions-header-left">
+          <h2 class="questions-phase-name">{selectedPhase.name}</h2>
+          <span class="col-count">{phaseQuestions.length} {phaseQuestions.length === 1 ? t('phases.questions') : t('phases.questionsPlural')}</span>
         </div>
         <button class="btn-primary" onclick={() => { showAddForm = !showAddForm; if (!showAddForm) { newQText = ''; newQType = 'text'; } }}>
-          {showAddForm ? '✕ Cancel' : '+ Add Question'}
+          {showAddForm ? `&#10005; ${t('common.cancel')}` : t('phases.addQuestion')}
         </button>
       </div>
 
@@ -253,31 +643,31 @@
         <div class="add-question-form-card">
           <form onsubmit={(e) => { e.preventDefault(); createQuestion(); }}>
             <div class="form-field">
-              <label class="field-label" for="q-editor">Content</label>
+              <label class="field-label" for="q-editor">{t('phases.content')}</label>
               <TelegramEditor
                 content=""
                 onchange={(html) => { newQText = html; }}
-                placeholder={newQType === 'info' ? 'Info block text…' : 'Question text…'}
+                placeholder={newQType === 'info' ? t('phases.infoBlockPlaceholder') : ''}
               />
             </div>
             <div class="form-bottom-row">
               <select bind:value={newQType}>
-                <option value="text">Text answer</option>
-                <option value="button">Button choice</option>
-                <option value="image">Image upload</option>
-                <option value="info">Info block</option>
+                <option value="text">{t('phases.typeText')}</option>
+                <option value="button">{t('phases.typeButton')}</option>
+                <option value="image">{t('phases.typeImage')}</option>
+                <option value="info">{t('phases.typeInfo')}</option>
               </select>
               {#if newQType === 'info'}
-                <span class="hint">Info blocks are sent to users without requiring a response.</span>
+                <span class="hint">{t('phases.infoHint')}</span>
               {/if}
-              <button type="submit" class="btn-primary" style="margin-left: auto">Add Question</button>
+              <button type="submit" class="btn-primary" style="margin-left: auto">{t('phases.addQuestionBtn')}</button>
             </div>
           </form>
         </div>
       {/if}
 
       {#if phaseQuestions.length === 0 && !showAddForm}
-        <p class="state-msg-centered">No questions yet. Click "Add Question" to start.</p>
+        <p class="state-msg-centered">{t('phases.noQuestions')}</p>
       {:else}
         <div class="question-cards">
           {#each sortedQuestions as q, idx (q.id)}
@@ -288,24 +678,24 @@
 
                 {#if editingTypeId === q.id}
                   <select class="type-select" bind:value={editingTypeValue} onclick={(e) => e.stopPropagation()}>
-                    <option value="text">Text</option>
-                    <option value="button">Button</option>
-                    <option value="image">Image</option>
-                    <option value="info">Info Block</option>
+                    <option value="text">{t('phases.badgeText')}</option>
+                    <option value="button">{t('phases.badgeButton')}</option>
+                    <option value="image">{t('phases.badgeImage')}</option>
+                    <option value="info">{t('phases.badgeInfo')}</option>
                   </select>
-                  <button class="btn-icon confirm" title="Save type" onclick={(e) => saveQuestionType(q, e)}>✓</button>
-                  <button class="btn-icon" title="Cancel" onclick={cancelEditType}>✕</button>
+                  <button class="btn-icon confirm" title="Save type" onclick={(e) => saveQuestionType(q, e)}>&#10003;</button>
+                  <button class="btn-icon" title="Cancel" onclick={cancelEditType}>&#10005;</button>
                 {:else}
-                  <button class="type-badge type-{q.question_type}" title="Click to change type"
+                  <button class="type-badge type-{q.question_type}" title={t('phases.clickToChangeType')}
                     onclick={(e) => startEditType(q, e)}>
                     {typeLabel(q.question_type)}
                   </button>
                 {/if}
 
                 <div class="qcard-actions">
-                  <button class="btn-icon" title="Move up" disabled={idx === 0} onclick={() => moveQuestion(q, -1)}>↑</button>
-                  <button class="btn-icon" title="Move down" disabled={idx === sortedQuestions.length - 1} onclick={() => moveQuestion(q, 1)}>↓</button>
-                  <button class="btn-sm danger" onclick={() => deleteQuestion(q.id)}>Delete</button>
+                  <button class="btn-icon" title="Move up" disabled={idx === 0} onclick={() => moveQuestion(q, -1)}>&#8593;</button>
+                  <button class="btn-icon" title="Move down" disabled={idx === sortedQuestions.length - 1} onclick={() => moveQuestion(q, 1)}>&#8595;</button>
+                  <button class="btn-sm danger" onclick={() => deleteQuestion(q.id)}>{t('common.delete')}</button>
                 </div>
               </div>
 
@@ -314,7 +704,7 @@
               {#if q.question_type === 'button'}
                 <div class="options-section">
                   <div class="options-header">
-                    <span class="options-label">Button options</span>
+                    <span class="options-label">{t('phases.buttonOptions')}</span>
                     <span class="col-count">{questionOptionsMap[q.id]?.length ?? 0}</span>
                   </div>
                   <div class="options-chips">
@@ -324,17 +714,17 @@
                         {#if opt.value !== opt.label}
                           <span class="chip-value">{opt.value}</span>
                         {/if}
-                        <button class="chip-delete" title="Remove option" onclick={() => deleteOptionInline(opt.id, q.id)}>×</button>
+                        <button class="chip-delete" title={t('common.remove')} onclick={() => deleteOptionInline(opt.id, q.id)}>&#215;</button>
                       </span>
                     {/each}
                     {#if (questionOptionsMap[q.id] ?? []).length === 0}
-                      <span class="options-empty">No options yet</span>
+                      <span class="options-empty">{t('phases.noOptions')}</span>
                     {/if}
                   </div>
                   <form class="add-option-row" onsubmit={(e) => { e.preventDefault(); createOptionFor(q.id); }}>
-                    <input bind:value={newOptLabel} placeholder="Button label" required />
-                    <input bind:value={newOptValue} placeholder="Value (defaults to label)" />
-                    <button type="submit" class="btn-sm">+ Add</button>
+                    <input bind:value={newOptLabel} placeholder={t('phases.buttonLabel')} required />
+                    <input bind:value={newOptValue} placeholder={t('phases.valueDefault')} />
+                    <button type="submit" class="btn-sm">{t('phases.addOption')}</button>
                   </form>
                 </div>
               {/if}
@@ -435,7 +825,7 @@
     flex-direction: column;
     gap: 0.5rem;
   }
-  .sidebar-add-form input {
+  .sidebar-add-form input, .sidebar-add-form select {
     padding: 0.45rem 0.65rem;
     border: 1px solid #d0d3dc;
     border-radius: 4px;
@@ -446,9 +836,13 @@
     color: #333;
     transition: border-color 0.15s;
   }
-  .sidebar-add-form input:focus {
+  .sidebar-add-form input:focus, .sidebar-add-form select:focus {
     outline: none;
     border-color: #1a1a2e;
+  }
+
+  .phase-type-select {
+    cursor: pointer;
   }
 
   /* ── Phase list ── */
@@ -532,6 +926,7 @@
   }
   .badge-active  { background: #e3f5eb; color: #1a7a3e; }
   .badge-inactive { background: #f0f0f0; color: #999; }
+  .badge-invite  { background: #eeeeff; color: #4444aa; }
 
   .phase-actions {
     display: flex;
@@ -595,6 +990,12 @@
     text-overflow: ellipsis;
   }
 
+  .header-buttons {
+    display: flex;
+    gap: 0.5rem;
+    flex-shrink: 0;
+  }
+
   /* ── Add-question form card ── */
   .add-question-form-card {
     background: #ffffff;
@@ -607,6 +1008,16 @@
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+  }
+  .add-question-form-card select {
+    padding: 0.45rem 0.65rem;
+    border: 1px solid #d0d3dc;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    background: white;
+    color: #333;
+    width: 100%;
+    box-sizing: border-box;
   }
   .form-field {
     display: flex;
@@ -706,6 +1117,7 @@
   .type-button  { background: #e3f5eb; color: #1a7a3e; }
   .type-image   { background: #fdf3e3; color: #a86a1a; }
   .type-info    { background: #eeeeff; color: #4444aa; }
+  .type-invite  { background: #eeeeff; color: #4444aa; cursor: default; }
 
   .type-select {
     font-size: 0.72rem;
@@ -722,6 +1134,7 @@
     gap: 0.3rem;
     margin-left: auto;
     flex-shrink: 0;
+    align-items: center;
   }
 
   .qcard-text {
@@ -826,6 +1239,150 @@
   .add-option-row input:first-child { flex: 1.2; }
   .add-option-row input:nth-child(2) { flex: 1; }
   .add-option-row input:focus { outline: none; border-color: #1a1a2e; }
+
+  /* ── Invite rule card ── */
+  .invite-rule-card {
+    border-left: 3px solid #9999dd;
+    background: #f8f8ff;
+  }
+  .invite-rule-card .qcard-header {
+    background: #f0f0fa;
+  }
+
+  .rule-group-name {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: #1a1a2e;
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .rule-body {
+    padding: 0.75rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .rule-always {
+    font-size: 0.82rem;
+    color: #888;
+    font-style: italic;
+    margin: 0;
+  }
+
+  .conditions-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .condition-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.5rem;
+    background: #f0f0fa;
+    border: 1px solid #ddddf0;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    flex-wrap: wrap;
+  }
+
+  .cond-question {
+    color: #555;
+    font-weight: 500;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 300px;
+  }
+
+  .cond-operator {
+    color: #4444aa;
+    font-weight: 600;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+
+  .cond-value {
+    color: #1a7a3e;
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+
+  /* ── Add condition form ── */
+  .add-condition-form {
+    border: 1px solid #ddddf0;
+    border-radius: 6px;
+    padding: 0.65rem;
+    background: #f5f5ff;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .cond-form-row {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+
+  .cond-select {
+    padding: 0.35rem 0.55rem;
+    border: 1px solid #d0d3dc;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    background: white;
+    color: #333;
+    flex: 1;
+    min-width: 120px;
+  }
+
+  .cond-input {
+    padding: 0.35rem 0.55rem;
+    border: 1px solid #d0d3dc;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    background: white;
+    color: #333;
+    flex: 1;
+    min-width: 100px;
+  }
+
+  .cond-form-actions {
+    display: flex;
+    gap: 0.4rem;
+    justify-content: flex-end;
+  }
+
+  .btn-add-cond {
+    align-self: flex-start;
+  }
+
+  .btn-confirm {
+    background: #e3f5eb;
+    border-color: #a8d8bc;
+    color: #1a7a3e;
+  }
+  .btn-confirm:hover:not(:disabled) {
+    background: #d0eedb;
+  }
+  .btn-confirm:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .btn-invite {
+    background: #4444aa;
+  }
+  .btn-invite:hover { opacity: 0.88; }
 
   /* ── Shared utilities ── */
   .state-msg {

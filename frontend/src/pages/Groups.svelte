@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { groups } from '../lib/api';
+  import { t } from '../lib/i18n.svelte';
   import type { Group } from '../lib/types';
 
   let allGroups: Group[] = [];
@@ -35,31 +36,31 @@
   }
 
   async function remove(id: number) {
-    if (!confirm('Remove this group?')) return;
+    if (!confirm(t('groups.removeConfirm'))) return;
     await groups.delete(id);
     await load();
   }
 </script>
 
-<h1>Groups</h1>
-<p>Add the groups this bot manages. The bot must be an <strong>administrator</strong> of each group with permission to create invite links.</p>
+<h1>{t('groups.title')}</h1>
+<p>{@html t('groups.subtitle')}</p>
 
 {#if error}<p class="error">{error}</p>{/if}
 
 <form on:submit|preventDefault={create} class="add-form">
-  <input bind:value={newTelegramId} placeholder="Telegram group ID (e.g. -1001234567890)" required />
-  <input bind:value={newTitle} placeholder="Group title" required />
-  <button type="submit">Add Group</button>
+  <input bind:value={newTelegramId} placeholder={t('groups.telegramIdPlaceholder')} required />
+  <input bind:value={newTitle} placeholder={t('groups.titlePlaceholder')} required />
+  <button type="submit">{t('groups.addGroup')}</button>
 </form>
 
 {#if loading}
-  <p>Loading…</p>
+  <p>{t('common.loadingAlt')}</p>
 {:else if allGroups.length === 0}
-  <p>No groups configured yet.</p>
+  <p>{t('groups.none')}</p>
 {:else}
   <table>
     <thead>
-      <tr><th>ID</th><th>Telegram ID</th><th>Title</th><th>Active</th><th>Actions</th></tr>
+      <tr><th>{t('groups.id')}</th><th>{t('groups.telegramId')}</th><th>{t('groups.titleHeader')}</th><th>{t('groups.active')}</th><th>{t('common.actions')}</th></tr>
     </thead>
     <tbody>
       {#each allGroups as g (g.id)}
@@ -69,8 +70,8 @@
           <td>{g.title}</td>
           <td>{g.active ? '✅' : '❌'}</td>
           <td>
-            <button on:click={() => toggle(g)}>{g.active ? 'Disable' : 'Enable'}</button>
-            <button class="danger" on:click={() => remove(g.id)}>Remove</button>
+            <button on:click={() => toggle(g)}>{g.active ? t('common.disable') : t('common.enable')}</button>
+            <button class="danger" on:click={() => remove(g.id)}>{t('common.remove')}</button>
           </td>
         </tr>
       {/each}

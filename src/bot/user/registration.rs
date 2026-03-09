@@ -3,11 +3,13 @@ use teloxide::{
     prelude::*,
     types::{ChatId, InlineKeyboardButton, InlineKeyboardMarkup, Message, ParseMode},
 };
+use tokio::sync::RwLock;
 
 use crate::{
     bot::state::{BotDialogue, HandlerResult, State},
     db::{models::Question, queries, DbPool},
     error::AppError,
+    i18n::{self, Lang},
     payment::PaymentProvider,
 };
 
@@ -21,6 +23,7 @@ pub async fn send_question(
     chat_id: ChatId,
     pool: &DbPool,
     question: &Question,
+    l: Lang,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     match question.question_type.as_str() {
         "button" => {
@@ -47,7 +50,7 @@ pub async fn send_question(
                 .await?;
         }
         "image" => {
-            let text = format!("{}\n\n📷 Please send a photo as your answer.", question.text);
+            let text = format!("{}\n\n{}", question.text, i18n::photo_prompt(l));
             bot.send_message(chat_id, text)
                 .parse_mode(ParseMode::Html)
                 .await?;
@@ -72,11 +75,12 @@ pub async fn start_phase(
     chat_id: ChatId,
     user_id: i64,
     phase_id: i64,
+    l: Lang,
 ) -> HandlerResult {
     let first_q = queries::questions::first_in_phase(pool, phase_id).await?;
     match first_q {
         None => {
-            all_phases_complete(bot, dialogue, pool, payment_provider, chat_id, user_id).await
+            all_phases_complete(bot, dialogue, pool, payment_provider, chat_id, user_id, l).await
         }
         Some(q) => {
             sqlx::query(
@@ -92,10 +96,10 @@ pub async fn start_phase(
                 bot.send_message(chat_id, &q.text)
                     .parse_mode(ParseMode::Html)
                     .await?;
-                advance(bot, dialogue, pool, payment_provider, chat_id, user_id, phase_id, &q)
+                advance(bot, dialogue, pool, payment_provider, chat_id, user_id, phase_id, &q, l)
                     .await
             } else {
-                send_question(bot, chat_id, pool, &q).await?;
+                send_question(bot, chat_id, pool, &q, l).await?;
                 dialogue
                     .update(State::InPhase {
                         phase_id,
@@ -115,7 +119,9 @@ pub async fn handle_message(
     msg: Message,
     pool: DbPool,
     payment_provider: Arc<dyn PaymentProvider + Send + Sync>,
+    lang: Arc<RwLock<Lang>>,
 ) -> HandlerResult {
+    let l = *lang.read().await;
     let state = dialogue.get().await?.unwrap_or_default();
     let (phase_id, question_id) = match state {
         State::InPhase { phase_id, question_id } => (phase_id, question_id),
@@ -148,10 +154,11 @@ pub async fn handle_message(
                     user.id,
                     phase_id,
                     &question,
+                    l,
                 )
                 .await?;
             } else {
-                bot.send_message(msg.chat.id, "Please send a text message to answer this question.")
+                bot.send_message(msg.chat.id, i18n::send_text(l))
                     .await?;
             }
         }
@@ -172,23 +179,18 @@ pub async fn handle_message(
                     user.id,
                     phase_id,
                     &question,
+                    l,
                 )
                 .await?;
             } else {
-                bot.send_message(
-                    msg.chat.id,
-                    "Please send a photo to answer this question.",
-                )
-                .await?;
+                bot.send_message(msg.chat.id, i18n::send_photo(l))
+                    .await?;
             }
         }
         "button" => {
-            bot.send_message(
-                msg.chat.id,
-                "Please use the buttons below to answer this question.",
-            )
-            .await?;
-            send_question(&bot, msg.chat.id, &pool, &question).await?;
+            bot.send_message(msg.chat.id, i18n::use_buttons(l))
+                .await?;
+            send_question(&bot, msg.chat.id, &pool, &question, l).await?;
         }
         "info" => {
             advance(
@@ -200,6 +202,7 @@ pub async fn handle_message(
                 user.id,
                 phase_id,
                 &question,
+                l,
             )
             .await?;
         }
@@ -216,7 +219,9 @@ pub async fn handle_callback(
     q: CallbackQuery,
     pool: DbPool,
     payment_provider: Arc<dyn PaymentProvider + Send + Sync>,
+    lang: Arc<RwLock<Lang>>,
 ) -> HandlerResult {
+    let l = *lang.read().await;
     let state = dialogue.get().await?.unwrap_or_default();
     let (phase_id, question_id) = match state {
         State::InPhase { phase_id, question_id } => (phase_id, question_id),
@@ -257,6 +262,7 @@ pub async fn handle_callback(
                 user.id,
                 phase_id,
                 &question,
+                l,
             )
             .await?;
         }
@@ -277,6 +283,7 @@ pub(crate) async fn advance(
     user_id: i64,
     start_phase_id: i64,
     current_question: &Question,
+    l: Lang,
 ) -> HandlerResult {
     let mut phase_id = start_phase_id;
     let mut after_pos = current_question.position;
@@ -303,7 +310,7 @@ pub(crate) async fn advance(
                 continue;
             }
 
-            send_question(bot, chat_id, pool, &next_q).await?;
+            send_question(bot, chat_id, pool, &next_q, l).await?;
             dialogue
                 .update(State::InPhase {
                     phase_id,
@@ -318,12 +325,12 @@ pub(crate) async fn advance(
             .await?
             .ok_or_else(|| AppError::NotFound("phase not found".into()))?;
 
-        let phases = queries::phases::list_active(pool).await?;
+        let phases = queries::phases::list_active_normal(pool).await?;
         match phases.into_iter().find(|p| p.position > current_phase.position) {
             Some(next_phase) => {
                 bot.send_message(
                     chat_id,
-                    format!("Moving on to: <b>{}</b>", escape_html(&next_phase.name)),
+                    i18n::moving_on_to(l, &escape_html(&next_phase.name)),
                 )
                 .parse_mode(ParseMode::Html)
                 .await?;
@@ -338,6 +345,7 @@ pub(crate) async fn advance(
                     payment_provider,
                     chat_id,
                     user_id,
+                    l,
                 )
                 .await;
             }
@@ -352,6 +360,7 @@ async fn all_phases_complete(
     payment_provider: &Arc<dyn PaymentProvider + Send + Sync>,
     chat_id: ChatId,
     user_id: i64,
+    l: Lang,
 ) -> HandlerResult {
     sqlx::query(
         "UPDATE user_registration SET completed_at = CURRENT_TIMESTAMP WHERE user_id = ?",
@@ -362,5 +371,5 @@ async fn all_phases_complete(
 
     dialogue.update(State::AwaitingPayment).await?;
 
-    crate::bot::user::payment::send_payment_options(bot, chat_id, payment_provider).await
+    crate::bot::user::payment::send_payment_options(bot, chat_id, payment_provider, l).await
 }

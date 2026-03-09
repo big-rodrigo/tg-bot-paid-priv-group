@@ -1,7 +1,8 @@
 use std::sync::Arc;
 use teloxide::Bot;
+use tokio::sync::RwLock;
 
-use crate::{config::AppConfig, db::DbPool, payment::PaymentProvider};
+use crate::{config::AppConfig, db::DbPool, i18n::Lang, payment::PaymentProvider};
 
 /// Shared state injected into all Axum handlers.
 #[derive(Clone)]
@@ -10,4 +11,5 @@ pub struct WebState {
     pub bot: Bot,
     pub config: Arc<AppConfig>,
     pub payment_provider: Arc<dyn PaymentProvider + Send + Sync>,
+    pub lang: Arc<RwLock<Lang>>,
 }

@@ -57,3 +57,47 @@ pub async fn list(pool: &DbPool, page: i64, limit: i64) -> Result<Vec<User>> {
     .await
     .map_err(Into::into)
 }
+
+/// Reset a user's registration progress: clear answers, cancel pending payments,
+/// and delete the user_registration row so they can /start fresh.
+pub async fn reset_registration(pool: &DbPool, user_id: i64) -> Result<()> {
+    sqlx::query("DELETE FROM answers WHERE user_id = ?")
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+
+    sqlx::query("UPDATE payments SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND status = 'pending'")
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+
+    sqlx::query("DELETE FROM user_registration WHERE user_id = ?")
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+/// Fully unregister a user: reset registration, revoke all unused invite links,
+/// and delete invite link records.
+pub async fn unregister(pool: &DbPool, user_id: i64) -> Result<()> {
+    reset_registration(pool, user_id).await?;
+
+    sqlx::query("UPDATE invite_links SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND used_at IS NULL AND revoked_at IS NULL")
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+
+    sqlx::query("DELETE FROM invite_links WHERE user_id = ?")
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+
+    sqlx::query("DELETE FROM payments WHERE user_id = ?")
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}

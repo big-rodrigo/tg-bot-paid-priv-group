@@ -3,12 +3,14 @@ use teloxide::{
     prelude::*,
     types::{ChatId, InlineKeyboardButton, InlineKeyboardMarkup, Message},
 };
+use tokio::sync::RwLock;
 
 use crate::{
     bot::state::{BotDialogue, HandlerResult, State},
     config::AppConfig,
     db::{queries, DbPool},
     error::AppError,
+    i18n::{self, Lang},
     payment::PaymentProvider,
 };
 
@@ -17,23 +19,21 @@ pub async fn send_payment_options(
     bot: &Bot,
     chat_id: ChatId,
     payment_provider: &Arc<dyn PaymentProvider + Send + Sync>,
+    l: Lang,
 ) -> HandlerResult {
     let (label, callback) = match payment_provider.provider_name() {
-        "livepix" => ("Pay via LivePix", "pay:livepix"),
-        "telegram" => ("Pay via Card / Wallet", "pay:telegram"),
-        _ => ("Pay via External Gateway", "pay:external"),
+        "livepix" => (i18n::pay_livepix(l), "pay:livepix"),
+        "telegram" => (i18n::pay_telegram(l), "pay:telegram"),
+        _ => (i18n::pay_external(l), "pay:external"),
     };
 
     let rows: Vec<Vec<InlineKeyboardButton>> =
         vec![vec![InlineKeyboardButton::callback(label, callback)]];
 
     let keyboard = InlineKeyboardMarkup::new(rows);
-    bot.send_message(
-        chat_id,
-        "Registration complete! Please proceed with payment to receive your invite links.",
-    )
-    .reply_markup(keyboard)
-    .await?;
+    bot.send_message(chat_id, i18n::registration_complete(l))
+        .reply_markup(keyboard)
+        .await?;
 
     Ok(())
 }
@@ -57,7 +57,9 @@ pub async fn handle_payment_selection(
     pool: DbPool,
     config: Arc<AppConfig>,
     payment_provider: Arc<dyn PaymentProvider + Send + Sync>,
+    lang: Arc<RwLock<Lang>>,
 ) -> HandlerResult {
+    let l = *lang.read().await;
     bot.answer_callback_query(q.id).await?;
 
     let user_telegram_id = q.from.id.0 as i64;
@@ -102,18 +104,15 @@ pub async fn handle_payment_selection(
                 .clone()
                 .unwrap_or_default();
             if provider_token.is_empty() {
-                bot.send_message(
-                    chat_id,
-                    "Telegram payments are not configured. Please choose another method.",
-                )
-                .await?;
+                bot.send_message(chat_id, i18n::telegram_not_configured(l))
+                    .await?;
                 return Ok(());
             }
 
             let payment_id =
                 queries::payments::create(&pool, user.id, "telegram", None).await?;
-            let title = "Registration Access";
-            let description = "One-time payment for access to private groups";
+            let title = i18n::invoice_title(l);
+            let description = i18n::invoice_description(l);
             let payload = payment_id.to_string();
 
             bot.send_invoice(
@@ -123,7 +122,7 @@ pub async fn handle_payment_selection(
                 &payload,
                 "USD",
                 vec![teloxide::types::LabeledPrice {
-                    label: "Access Fee".to_string(),
+                    label: i18n::invoice_label(l).to_string(),
                     amount: 1000, // $10.00 in cents — configure as needed
                 }],
             )
@@ -136,7 +135,8 @@ pub async fn handle_payment_selection(
         }
 
         _ => {
-            bot.send_message(chat_id, "Unknown payment option.").await?;
+            bot.send_message(chat_id, i18n::unknown_payment_option(l))
+                .await?;
         }
     }
 
@@ -158,7 +158,9 @@ pub async fn handle_successful_payment(
     dialogue: BotDialogue,
     msg: Message,
     pool: DbPool,
+    lang: Arc<RwLock<Lang>>,
 ) -> HandlerResult {
+    let l = *lang.read().await;
     let successful_payment = match msg.successful_payment() {
         Some(p) => p,
         None => return Ok(()),
@@ -184,7 +186,7 @@ pub async fn handle_successful_payment(
 
     dialogue.update(State::Registered).await?;
 
-    super::invite::deliver_invites(bot, pool, user.id, user.telegram_id).await?;
+    super::invite::deliver_invites(bot, pool, user.id, user.telegram_id, l).await?;
 
     Ok(())
 }

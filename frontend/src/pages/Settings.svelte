@@ -1,15 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { settings, debug } from '../lib/api';
-  import TelegramEditor from '../lib/TelegramEditor.svelte';
-  import { toTelegramHtml } from '../lib/telegramify';
+  import { t, getLang, setLang, type Lang } from '../lib/i18n.svelte';
 
-  // Welcome message
-  let welcomeRaw = $state('');
-  let savedValue = $state('');
-  let loadingWelcome = $state(true);
-  let savingWelcome = $state(false);
-  let welcomeMsg = $state('');
+  // Language
+  let selectedLang: Lang = $state(getLang());
 
   // LivePix settings
   let livepixUrl = $state('');
@@ -29,38 +24,29 @@
 
   onMount(async () => {
     try {
-      const [welcomeData, urlData, priceData, currencyData] = await Promise.all([
-        settings.get('welcome_message').catch(() => ({ value: '' })),
+      const [urlData, priceData, currencyData, langData] = await Promise.all([
         settings.get('livepix_account_url').catch(() => ({ value: '' })),
         settings.get('livepix_price_cents').catch(() => ({ value: '0' })),
         settings.get('livepix_currency').catch(() => ({ value: 'BRL' })),
+        settings.get('language').catch(() => ({ value: 'en' })),
       ]);
-      savedValue = welcomeData.value;
-      welcomeRaw = welcomeData.value;
       livepixUrl = urlData.value;
       livepixPriceCents = priceData.value;
       livepixCurrency = currencyData.value;
+      selectedLang = langData.value as Lang;
     } catch (e: any) {
       error = e.message;
     } finally {
-      loadingWelcome = false;
       loadingLivepix = false;
     }
   });
 
-  async function saveWelcome() {
-    savingWelcome = true;
-    welcomeMsg = '';
+  async function saveLang() {
     try {
-      const telegramHtml = toTelegramHtml(welcomeRaw);
-      await settings.update('welcome_message', telegramHtml);
-      savedValue = telegramHtml;
-      welcomeMsg = 'Saved!';
-      setTimeout(() => (welcomeMsg = ''), 3000);
+      await settings.update('language', selectedLang);
+      setLang(selectedLang);
     } catch (e: any) {
-      welcomeMsg = 'Error: ' + e.message;
-    } finally {
-      savingWelcome = false;
+      error = e.message;
     }
   }
 
@@ -73,10 +59,10 @@
         settings.update('livepix_price_cents', livepixPriceCents.toString()),
         settings.update('livepix_currency', livepixCurrency.trim().toUpperCase()),
       ]);
-      livepixMsg = 'Saved!';
+      livepixMsg = t('common.saved');
       setTimeout(() => (livepixMsg = ''), 3000);
     } catch (e: any) {
-      livepixMsg = 'Error: ' + e.message;
+      livepixMsg = `${t('common.error')}: ${e.message}`;
     } finally {
       savingLivepix = false;
     }
@@ -117,55 +103,43 @@
   }
 </script>
 
-<h1>Settings</h1>
+<h1>{t('settings.title')}</h1>
 
 {#if error}<p class="error">{error}</p>{/if}
 
-{#if loadingWelcome}
-  <p>Loading…</p>
-{:else}
-  <section class="card">
-    <h2>Welcome Message</h2>
-    <p class="hint">
-      Sent to users when they start the bot with <code>/start</code>.
-      Supports Telegram formatting: bold, italic, underline, strikethrough, code, blockquote, links.
-    </p>
-    <TelegramEditor
-      content={savedValue}
-      onchange={(html) => { welcomeRaw = html; }}
-    />
-    <div class="actions">
-      <button onclick={saveWelcome} disabled={savingWelcome}>{savingWelcome ? 'Saving…' : 'Save'}</button>
-      {#if welcomeMsg}
-        <span class="save-msg" class:error-msg={welcomeMsg.startsWith('Error')}>{welcomeMsg}</span>
-      {/if}
-    </div>
-  </section>
-{/if}
+<section class="card">
+  <h2>{t('settings.language')}</h2>
+  <p class="hint">{t('settings.languageHint')}</p>
+  <div class="field">
+    <select bind:value={selectedLang} onchange={saveLang}>
+      <option value="en">English</option>
+      <option value="pt-BR">Português (Brasil)</option>
+    </select>
+  </div>
+</section>
 
 {#if loadingLivepix}
-  <p>Loading…</p>
+  <p>{t('common.loadingAlt')}</p>
 {:else}
   <section class="card">
-    <h2>LivePix Payment</h2>
+    <h2>{t('settings.livepix')}</h2>
     <p class="hint">
-      Configure the LivePix donation page that users will be sent to for payment.
-      Set <code>LIVEPIX_CLIENT_ID</code> and <code>LIVEPIX_CLIENT_SECRET</code> env vars to enable.
+      {t('settings.livepixHint')}
     </p>
 
     <div class="field">
-      <label for="lp-url">Donation page URL</label>
+      <label for="lp-url">{t('settings.donationUrl')}</label>
       <input
         id="lp-url"
         type="url"
         placeholder="https://livepix.gg/youraccount"
         bind:value={livepixUrl}
       />
-      <span class="hint">Your LivePix public donation page address.</span>
+      <span class="hint">{t('settings.donationUrlHint')}</span>
     </div>
 
     <div class="field">
-      <label for="lp-price">Minimum price ({livepixCurrency})</label>
+      <label for="lp-price">{t('settings.minPrice')} ({livepixCurrency})</label>
       <input
         id="lp-price"
         type="number"
@@ -175,11 +149,11 @@
         value={priceDisplay(livepixPriceCents)}
         oninput={(e) => { livepixPriceCents = priceFromInput((e.target as HTMLInputElement).value); }}
       />
-      <span class="hint">Users must pay at least this amount. Stored as cents internally ({livepixPriceCents} cents).</span>
+      <span class="hint">{t('settings.minPriceHint')} ({livepixPriceCents} {t('settings.cents')}).</span>
     </div>
 
     <div class="field">
-      <label for="lp-currency">Currency code</label>
+      <label for="lp-currency">{t('settings.currencyCode')}</label>
       <input
         id="lp-currency"
         type="text"
@@ -187,37 +161,36 @@
         placeholder="BRL"
         bind:value={livepixCurrency}
       />
-      <span class="hint">3-letter currency code, e.g. BRL.</span>
+      <span class="hint">{t('settings.currencyHint')}</span>
     </div>
 
     <div class="actions">
-      <button onclick={saveLivepix} disabled={savingLivepix}>{savingLivepix ? 'Saving…' : 'Save'}</button>
+      <button onclick={saveLivepix} disabled={savingLivepix}>{savingLivepix ? t('common.saving') : t('common.save')}</button>
       {#if livepixMsg}
-        <span class="save-msg" class:error-msg={livepixMsg.startsWith('Error')}>{livepixMsg}</span>
+        <span class="save-msg" class:error-msg={livepixMsg.startsWith(t('common.error'))}>{livepixMsg}</span>
       {/if}
     </div>
   </section>
 {/if}
 
 <section class="card">
-  <h2>LivePix Token (debug)</h2>
+  <h2>{t('settings.livepixToken')}</h2>
   <p class="hint">
-    Mostra o token OAuth2 atualmente em cache para a API do LivePix.
-    Use como <code>Authorization: Bearer &lt;token&gt;</code> em testes locais.
+    {t('settings.tokenHint')}
   </p>
   <div class="actions">
     <button onclick={fetchToken} disabled={tokenLoading}>
-      {tokenLoading ? 'Buscando…' : 'Ver token em cache'}
+      {tokenLoading ? t('settings.fetchingToken') : t('settings.viewToken')}
     </button>
     {#if tokenFetched && tokenValue}
-      <button onclick={copyToken}>{tokenCopied ? 'Copiado!' : 'Copiar'}</button>
+      <button onclick={copyToken}>{tokenCopied ? t('settings.copied') : t('settings.copy')}</button>
     {/if}
   </div>
   {#if tokenFetched}
     {#if tokenValue}
       <textarea class="token-box" readonly>{tokenValue}</textarea>
     {:else}
-      <p class="hint" style="margin-top:0.5rem">Nenhum token em cache — ainda não houve autenticação com a API do LivePix.</p>
+      <p class="hint" style="margin-top:0.5rem">{t('settings.noToken')}</p>
     {/if}
   {/if}
 </section>
@@ -237,7 +210,7 @@
   .hint code { background: #f0f0f0; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em; }
   .field { margin-bottom: 1rem; }
   .field label { display: block; font-size: 0.875rem; font-weight: 600; color: #333; margin-bottom: 0.3rem; }
-  .field input {
+  .field input, .field select {
     width: 100%;
     padding: 0.4rem 0.6rem;
     border: 1px solid #ccc;
@@ -245,7 +218,7 @@
     font-size: 0.9rem;
     box-sizing: border-box;
   }
-  .field input:focus { outline: none; border-color: #1a1a2e; }
+  .field input:focus, .field select:focus { outline: none; border-color: #1a1a2e; }
   .field .hint { margin: 0.25rem 0 0; }
   .actions { display: flex; gap: 1rem; align-items: center; margin-top: 0.75rem; }
   button {

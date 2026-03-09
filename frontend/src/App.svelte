@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { t, setLang } from './lib/i18n.svelte';
+  import { settings } from './lib/api';
   import Dashboard from './pages/Dashboard.svelte';
   import Phases from './pages/Phases.svelte';
   import Groups from './pages/Groups.svelte';
@@ -19,29 +21,38 @@
   let path = $state(window.location.hash.replace(/^#/, '') || '/');
   let CurrentPage = $derived(routes[path] ?? Dashboard);
 
-  onMount(() => {
+  onMount(async () => {
     const onHashChange = () => {
       path = window.location.hash.replace(/^#/, '') || '/';
     };
     window.addEventListener('hashchange', onHashChange);
+
+    // Load language setting
+    try {
+      const langSetting = await settings.get('language');
+      setLang(langSetting.value as 'en' | 'pt-BR');
+    } catch {
+      // Default to English
+    }
+
     return () => window.removeEventListener('hashchange', onHashChange);
   });
 
   let secret = localStorage.getItem('adminSecret') ?? '';
   if (!secret) {
-    secret = window.prompt('Enter admin secret:') ?? '';
+    secret = window.prompt(t('auth.prompt')) ?? '';
     localStorage.setItem('adminSecret', secret);
   }
 </script>
 
 <nav>
-  <strong>TG Bot Admin</strong>
-  <a href="/#/">Dashboard</a>
-  <a href="/#/phases">Phases</a>
-  <a href="/#/groups">Groups</a>
-  <a href="/#/users">Users</a>
-  <a href="/#/payments">Payments</a>
-  <a href="/#/settings">Settings</a>
+  <strong>{t('nav.title')}</strong>
+  <a href="/#/">{t('nav.dashboard')}</a>
+  <a href="/#/phases">{t('nav.phases')}</a>
+  <a href="/#/groups">{t('nav.groups')}</a>
+  <a href="/#/users">{t('nav.users')}</a>
+  <a href="/#/payments">{t('nav.payments')}</a>
+  <a href="/#/settings">{t('nav.settings')}</a>
 </nav>
 
 <main>

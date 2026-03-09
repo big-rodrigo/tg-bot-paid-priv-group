@@ -5,7 +5,7 @@ pub mod state;
 use axum::{
     http::Method,
     middleware,
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
     Router,
 };
 use tower_http::{
@@ -54,6 +54,31 @@ pub fn create_router(state: WebState) -> Router {
             "/api/options/:id",
             put(routes::questions::update_option).delete(routes::questions::delete_option),
         )
+        // Invite Rules (static routes before :id param routes)
+        .route(
+            "/api/invite-rules/reorder",
+            put(routes::invite_rules::reorder),
+        )
+        .route(
+            "/api/invite-rules/questions",
+            get(routes::invite_rules::available_questions),
+        )
+        .route(
+            "/api/phases/:phase_id/invite-rules",
+            get(routes::invite_rules::list_by_phase).post(routes::invite_rules::create),
+        )
+        .route(
+            "/api/invite-rules/:id",
+            put(routes::invite_rules::update).delete(routes::invite_rules::delete),
+        )
+        .route(
+            "/api/invite-rules/:invite_rule_id/conditions",
+            get(routes::invite_rules::list_conditions).post(routes::invite_rules::create_condition),
+        )
+        .route(
+            "/api/invite-rule-conditions/:id",
+            delete(routes::invite_rules::delete_condition),
+        )
         // Groups
         .route(
             "/api/groups",
@@ -88,6 +113,18 @@ pub fn create_router(state: WebState) -> Router {
         .route(
             "/api/admin/revoke-links/:user_id",
             post(routes::admin::revoke_links),
+        )
+        .route(
+            "/api/admin/reset-registration/:user_id",
+            post(routes::admin::reset_registration),
+        )
+        .route(
+            "/api/admin/unregister/:user_id",
+            post(routes::admin::unregister),
+        )
+        .route(
+            "/api/admin/telegram-image",
+            get(routes::admin::telegram_image),
         )
         .layer(middleware::from_fn_with_state(state.clone(), auth::basic_auth));
 

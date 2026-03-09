@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { payments } from '../lib/api';
+  import { t } from '../lib/i18n.svelte';
   import type { Payment } from '../lib/types';
 
   let allPayments: Payment[] = [];
@@ -26,39 +27,39 @@
   }
 </script>
 
-<h1>Payments</h1>
+<h1>{t('payments.title')}</h1>
 
 <div class="filters">
   <label>
-    Filter by status:
+    {t('payments.filterByStatus')}
     <select bind:value={filter} on:change={load}>
-      <option value="">All</option>
-      <option value="pending">Pending</option>
-      <option value="completed">Completed</option>
-      <option value="failed">Failed</option>
-      <option value="refunded">Refunded</option>
+      <option value="">{t('payments.all')}</option>
+      <option value="pending">{t('payments.pending')}</option>
+      <option value="completed">{t('payments.completed')}</option>
+      <option value="failed">{t('payments.failed')}</option>
+      <option value="refunded">{t('payments.refunded')}</option>
     </select>
   </label>
-  <button on:click={load}>Refresh</button>
+  <button on:click={load}>{t('common.refresh')}</button>
 </div>
 
 {#if error}<p class="error">{error}</p>{/if}
 
 {#if loading}
-  <p>Loading…</p>
+  <p>{t('common.loadingAlt')}</p>
 {:else if allPayments.length === 0}
-  <p>No payments found.</p>
+  <p>{t('payments.none')}</p>
 {:else}
   <table>
     <thead>
       <tr>
-        <th>ID</th>
-        <th>User ID</th>
-        <th>Provider</th>
-        <th>Status</th>
-        <th>Amount</th>
-        <th>Reference</th>
-        <th>Created</th>
+        <th>{t('payments.id')}</th>
+        <th>{t('payments.userId')}</th>
+        <th>{t('payments.provider')}</th>
+        <th>{t('payments.status')}</th>
+        <th>{t('payments.amount')}</th>
+        <th>{t('payments.reference')}</th>
+        <th>{t('payments.created')}</th>
       </tr>
     </thead>
     <tbody>

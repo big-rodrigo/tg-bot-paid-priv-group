@@ -34,6 +34,16 @@ pub async fn create(
     Path(phase_id): Path<i64>,
     Json(body): Json<CreateQuestion>,
 ) -> Result<(StatusCode, Json<serde_json::Value>)> {
+    // Invite phases only allow info blocks
+    let phase = queries::phases::get_by_id(&s.db, phase_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("phase {phase_id} not found")))?;
+    if phase.phase_type == "invite" && body.question_type != "info" {
+        return Err(AppError::Other(
+            "Only info blocks can be added to invite phases.".into(),
+        ));
+    }
+
     let position = body.position.unwrap_or(0);
     let required = body.required.unwrap_or(true);
     let id = queries::questions::create(

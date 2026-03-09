@@ -1,22 +1,159 @@
+use std::collections::HashSet;
+use std::sync::Arc;
+
 use teloxide::{prelude::*, types::ChatId};
+use tokio::sync::RwLock;
 
 use crate::{
     bot::{group::invite_manager, state::HandlerResult},
     db::{models::Group, queries, DbPool},
     error::Result,
+    i18n::{self, Lang},
 };
 
 fn escape_html(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
-/// Creates one-time invite links for all active groups and sends them to the user.
+/// Creates one-time invite links based on invite phase rules and sends them to the user.
 /// Called after payment is confirmed (both external webhook and Telegram payments).
+/// Falls back to sending all active groups if no invite phases are configured.
 pub async fn deliver_invites(
     bot: Bot,
     pool: DbPool,
     user_id: i64,
     user_telegram_id: i64,
+    l: Lang,
+) -> Result<()> {
+    let chat_id = ChatId(user_telegram_id);
+
+    let invite_phases = queries::phases::list_active_invite(&pool).await?;
+
+    if invite_phases.is_empty() {
+        return deliver_all_groups(bot, pool, user_id, user_telegram_id, l).await;
+    }
+
+    bot.send_message(chat_id, i18n::payment_confirmed_processing(l))
+        .await?;
+
+    let mut total_links = 0;
+    let mut invited_group_ids: HashSet<i64> = HashSet::new();
+
+    for phase in &invite_phases {
+        // Fetch info blocks and invite rules, process interleaved by position
+        let info_blocks = queries::questions::list_by_phase(&pool, phase.id).await?;
+        let invite_rules = queries::invite_rules::list_by_phase(&pool, phase.id).await?;
+
+        enum PhaseItem {
+            Info { text: String, position: i64 },
+            Rule { rule_id: i64, group_id: i64, position: i64 },
+        }
+
+        let mut items: Vec<PhaseItem> = Vec::new();
+        for q in &info_blocks {
+            if q.question_type == "info" {
+                items.push(PhaseItem::Info {
+                    text: q.text.clone(),
+                    position: q.position,
+                });
+            }
+        }
+        for rule in &invite_rules {
+            items.push(PhaseItem::Rule {
+                rule_id: rule.id,
+                group_id: rule.group_id,
+                position: rule.position,
+            });
+        }
+        items.sort_by_key(|item| match item {
+            PhaseItem::Info { position, .. } => *position,
+            PhaseItem::Rule { position, .. } => *position,
+        });
+
+        for item in &items {
+            match item {
+                PhaseItem::Info { text, .. } => {
+                    bot.send_message(chat_id, text)
+                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .await?;
+                }
+                PhaseItem::Rule {
+                    rule_id, group_id, ..
+                } => {
+                    if invited_group_ids.contains(group_id) {
+                        continue;
+                    }
+
+                    let matched =
+                        queries::invite_rules::evaluate_rule(&pool, *rule_id, user_id).await?;
+
+                    if !matched {
+                        continue;
+                    }
+
+                    let group = sqlx::query_as::<_, Group>(
+                        "SELECT * FROM groups WHERE id = ? AND active = TRUE",
+                    )
+                    .bind(group_id)
+                    .fetch_optional(&pool)
+                    .await?;
+
+                    let Some(group) = group else { continue };
+
+                    match invite_manager::create_one_time_link(&bot, group.telegram_id).await {
+                        Ok(link) => {
+                            queries::invite_links::create(&pool, user_id, group.id, &link).await?;
+                            bot.send_message(
+                                chat_id,
+                                i18n::link_line(&escape_html(&group.title), &link),
+                            )
+                            .parse_mode(teloxide::types::ParseMode::Html)
+                            .await?;
+                            invited_group_ids.insert(group.id);
+                            total_links += 1;
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to create invite link for group {} (id: {}): {e}",
+                                group.title,
+                                group.telegram_id,
+                            );
+                            bot.send_message(
+                                chat_id,
+                                i18n::link_error(l, &escape_html(&group.title)),
+                            )
+                            .parse_mode(teloxide::types::ParseMode::Html)
+                            .await?;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if total_links > 0 {
+        bot.send_message(chat_id, i18n::welcome_join(l))
+            .await?;
+    } else {
+        bot.send_message(chat_id, i18n::no_matches(l))
+            .await?;
+    }
+
+    tracing::info!(
+        "Delivered {total_links} invite links to user_id={user_id} (invite phase rules)"
+    );
+
+    Ok(())
+}
+
+/// Legacy fallback: deliver links for ALL active groups.
+/// Used when no invite phases are configured.
+async fn deliver_all_groups(
+    bot: Bot,
+    pool: DbPool,
+    user_id: i64,
+    user_telegram_id: i64,
+    l: Lang,
 ) -> Result<()> {
     let chat_id = ChatId(user_telegram_id);
 
@@ -27,20 +164,13 @@ pub async fn deliver_invites(
     .await?;
 
     if groups.is_empty() {
-        bot.send_message(
-            chat_id,
-            "Payment confirmed! No groups are configured yet — an admin will send your links shortly.",
-        )
-        .await?;
+        bot.send_message(chat_id, i18n::no_groups_configured(l))
+            .await?;
         return Ok(());
     }
 
-    bot.send_message(
-        chat_id,
-        "✅ Payment confirmed! Here are your personal invite links:\n\
-         ⚠️ Each link can only be used once.",
-    )
-    .await?;
+    bot.send_message(chat_id, i18n::here_are_links(l))
+        .await?;
 
     let mut success_count = 0;
 
@@ -50,7 +180,7 @@ pub async fn deliver_invites(
                 queries::invite_links::create(&pool, user_id, group.id, &link).await?;
                 bot.send_message(
                     chat_id,
-                    format!("🔗 <b>{}</b>\n{}", escape_html(&group.title), link),
+                    i18n::link_line(&escape_html(&group.title), &link),
                 )
                 .parse_mode(teloxide::types::ParseMode::Html)
                 .await?;
@@ -64,10 +194,7 @@ pub async fn deliver_invites(
                 );
                 bot.send_message(
                     chat_id,
-                    format!(
-                        "⚠️ Could not generate link for <b>{}</b>. An admin will contact you.",
-                        escape_html(&group.title)
-                    ),
+                    i18n::link_error(l, &escape_html(&group.title)),
                 )
                 .parse_mode(teloxide::types::ParseMode::Html)
                 .await?;
@@ -76,12 +203,8 @@ pub async fn deliver_invites(
     }
 
     if success_count > 0 {
-        bot.send_message(
-            chat_id,
-            "🎉 Welcome! Join the groups using the links above.\n\
-             Remember: each link is single-use, so join promptly!",
-        )
-        .await?;
+        bot.send_message(chat_id, i18n::welcome_join(l))
+            .await?;
     }
 
     tracing::info!(
@@ -93,23 +216,60 @@ pub async fn deliver_invites(
 }
 
 /// Re-sends existing unused invite links, and generates new ones for groups where all
-/// links have been used. Called by the /mylinks command.
+/// links have been used. Only considers groups the user was previously granted access to.
+/// Falls back to all active groups if no invite phases are configured.
 pub async fn refresh_invites(
     bot: Bot,
     pool: DbPool,
     user_id: i64,
     user_telegram_id: i64,
+    l: Lang,
 ) -> Result<()> {
     let chat_id = ChatId(user_telegram_id);
 
-    let groups = sqlx::query_as::<_, Group>(
-        "SELECT * FROM groups WHERE active = TRUE ORDER BY id ASC",
+    // Find groups the user has been granted access to
+    let granted_group_ids: Vec<i64> = sqlx::query_scalar(
+        "SELECT DISTINCT group_id FROM invite_links WHERE user_id = ?",
     )
+    .bind(user_id)
     .fetch_all(&pool)
     .await?;
 
+    // If no granted groups, check for legacy fallback
+    let groups: Vec<Group> = if granted_group_ids.is_empty() {
+        let invite_phases = queries::phases::list_active_invite(&pool).await?;
+        if invite_phases.is_empty() {
+            // Legacy: use all active groups
+            sqlx::query_as::<_, Group>(
+                "SELECT * FROM groups WHERE active = TRUE ORDER BY id ASC",
+            )
+            .fetch_all(&pool)
+            .await?
+        } else {
+            // Invite phases exist but user has no links — nothing to refresh
+            bot.send_message(chat_id, i18n::no_links_available(l))
+                .await?;
+            return Ok(());
+        }
+    } else {
+        // Fetch only the groups the user was granted access to
+        let mut result = Vec::new();
+        for gid in &granted_group_ids {
+            if let Some(group) = sqlx::query_as::<_, Group>(
+                "SELECT * FROM groups WHERE id = ? AND active = TRUE",
+            )
+            .bind(gid)
+            .fetch_optional(&pool)
+            .await?
+            {
+                result.push(group);
+            }
+        }
+        result
+    };
+
     if groups.is_empty() {
-        bot.send_message(chat_id, "No groups are configured yet. Contact an admin.")
+        bot.send_message(chat_id, i18n::no_groups_available(l))
             .await?;
         return Ok(());
     }
@@ -117,7 +277,6 @@ pub async fn refresh_invites(
     let mut sent_any = false;
 
     for group in &groups {
-        // Check for an existing unused, unrevoked link for this user+group
         let existing = sqlx::query_scalar::<_, String>(
             "SELECT invite_link FROM invite_links
              WHERE user_id = ? AND group_id = ?
@@ -133,7 +292,6 @@ pub async fn refresh_invites(
         let link = if let Some(existing_link) = existing {
             existing_link
         } else {
-            // All previous links for this group are used/revoked — generate a new one
             match invite_manager::create_one_time_link(&bot, group.telegram_id).await {
                 Ok(new_link) => {
                     queries::invite_links::create(&pool, user_id, group.id, &new_link).await?;
@@ -147,10 +305,7 @@ pub async fn refresh_invites(
                     );
                     bot.send_message(
                         chat_id,
-                        format!(
-                            "⚠️ Could not generate link for <b>{}</b>. Contact an admin.",
-                            escape_html(&group.title)
-                        ),
+                        i18n::link_error_contact_admin(l, &escape_html(&group.title)),
                     )
                     .parse_mode(teloxide::types::ParseMode::Html)
                     .await?;
@@ -160,24 +315,21 @@ pub async fn refresh_invites(
         };
 
         if !sent_any {
-            bot.send_message(
-                chat_id,
-                "Here are your invite links:\n⚠️ Each link can only be used once.",
-            )
-            .await?;
+            bot.send_message(chat_id, i18n::links_header(l))
+                .await?;
             sent_any = true;
         }
 
         bot.send_message(
             chat_id,
-            format!("🔗 <b>{}</b>\n{}", escape_html(&group.title), link),
+            i18n::link_line(&escape_html(&group.title), &link),
         )
         .parse_mode(teloxide::types::ParseMode::Html)
         .await?;
     }
 
     if !sent_any {
-        bot.send_message(chat_id, "You have no invite links available. Contact an admin.")
+        bot.send_message(chat_id, i18n::no_links_available(l))
             .await?;
     }
 
@@ -185,7 +337,13 @@ pub async fn refresh_invites(
 }
 
 /// Handler for the /mylinks command.
-pub async fn handle_mylinks(bot: Bot, msg: Message, pool: DbPool) -> HandlerResult {
+pub async fn handle_mylinks(
+    bot: Bot,
+    msg: Message,
+    pool: DbPool,
+    lang: Arc<RwLock<Lang>>,
+) -> HandlerResult {
+    let l = *lang.read().await;
     let from = match msg.from.as_ref() {
         Some(u) => u,
         None => return Ok(()),
@@ -193,24 +351,18 @@ pub async fn handle_mylinks(bot: Bot, msg: Message, pool: DbPool) -> HandlerResu
 
     let user = queries::users::get_by_telegram_id(&pool, from.id.0 as i64).await?;
     let Some(user) = user else {
-        bot.send_message(
-            msg.chat.id,
-            "You haven't registered yet. Send /start to begin.",
-        )
-        .await?;
+        bot.send_message(msg.chat.id, i18n::not_registered(l))
+            .await?;
         return Ok(());
     };
 
     let payment = queries::payments::get_completed_for_user(&pool, user.id).await?;
     if payment.is_none() {
-        bot.send_message(
-            msg.chat.id,
-            "You don't have a completed payment yet. Complete registration and payment first.",
-        )
-        .await?;
+        bot.send_message(msg.chat.id, i18n::no_payment(l))
+            .await?;
         return Ok(());
     }
 
-    refresh_invites(bot, pool, user.id, user.telegram_id).await?;
+    refresh_invites(bot, pool, user.id, user.telegram_id, l).await?;
     Ok(())
 }

@@ -54,7 +54,7 @@ pub async fn get_answers(
     State(s): State<WebState>,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>> {
-    let answers = queries::answers::list_by_user(&s.db, id).await?;
+    let answers = queries::answers::list_enriched_by_user(&s.db, id).await?;
     Ok(Json(serde_json::json!(answers)))
 }
 
