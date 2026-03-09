@@ -28,6 +28,15 @@ pub struct AppConfig {
     /// LivePix OAuth2 client secret
     pub livepix_client_secret: Option<String>,
 
+    /// LivePix donation page URL (fallback when DB setting is not configured)
+    pub livepix_account_url: Option<String>,
+
+    /// LivePix minimum price in cents (fallback when DB setting is not configured)
+    pub livepix_price_cents: Option<String>,
+
+    /// LivePix currency code (fallback when DB setting is not configured)
+    pub livepix_currency: Option<String>,
+
     /// Port the admin web interface listens on
     #[serde(default = "default_web_port")]
     pub web_interface_port: u16,

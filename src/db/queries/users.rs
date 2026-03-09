@@ -66,7 +66,7 @@ pub async fn reset_registration(pool: &DbPool, user_id: i64) -> Result<()> {
         .execute(pool)
         .await?;
 
-    sqlx::query("UPDATE payments SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND status = 'pending'")
+    sqlx::query("UPDATE payments SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND status = 'pending'")
         .bind(user_id)
         .execute(pool)
         .await?;

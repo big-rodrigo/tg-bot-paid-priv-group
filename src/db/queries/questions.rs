@@ -85,7 +85,7 @@ pub async fn update(
     media_type: Option<&str>,
 ) -> Result<()> {
     sqlx::query(
-        "UPDATE questions SET text = ?, question_type = ?, position = ?, required = ?, media_path = ?, media_type = ? WHERE id = ?",
+        "UPDATE questions SET text = ?, question_type = ?, position = ?, required = ?, media_path = ?, media_type = ?, media_file_id = NULL WHERE id = ?",
     )
     .bind(text)
     .bind(question_type)
@@ -118,6 +118,15 @@ pub async fn reorder(pool: &DbPool, items: &[(i64, i64)]) -> Result<()> {
     Ok(())
 }
 
+pub async fn update_media_file_id(pool: &DbPool, id: i64, file_id: &str) -> Result<()> {
+    sqlx::query("UPDATE questions SET media_file_id = ? WHERE id = ?")
+        .bind(file_id)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 // --- Options ---
 
 pub async fn list_options(pool: &DbPool, question_id: i64) -> Result<Vec<QuestionOption>> {
@@ -128,6 +137,14 @@ pub async fn list_options(pool: &DbPool, question_id: i64) -> Result<Vec<Questio
     .fetch_all(pool)
     .await
     .map_err(Into::into)
+}
+
+pub async fn get_option_by_id(pool: &DbPool, id: i64) -> Result<Option<QuestionOption>> {
+    sqlx::query_as::<_, QuestionOption>("SELECT * FROM question_options WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .map_err(Into::into)
 }
 
 pub async fn create_option(

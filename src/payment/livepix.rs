@@ -94,12 +94,26 @@ impl LivePixProvider {
         Ok(resp.access_token)
     }
 
-    async fn read_setting(&self, key: &str) -> Result<String> {
-        sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = ?")
+    async fn read_setting(&self, key: &str, env_fallback: Option<&str>) -> Result<String> {
+        let db_val = sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = ?")
             .bind(key)
             .fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| AppError::Payment(format!("setting '{key}' not found")))
+            .await?;
+
+        match db_val {
+            Some(ref v) if !v.is_empty() => Ok(v.clone()),
+            _ => {
+                if let Some(fallback) = env_fallback {
+                    tracing::warn!(
+                        "LivePix setting '{}' not configured in admin UI, using env var fallback",
+                        key
+                    );
+                    Ok(fallback.to_string())
+                } else {
+                    Err(AppError::Payment(format!("setting '{key}' not found")))
+                }
+            }
+        }
     }
 }
 
@@ -148,11 +162,11 @@ struct PaymentResponse {
 #[async_trait]
 impl PaymentProvider for LivePixProvider {
     async fn initiate(&self, user: &User, _payment_id: i64) -> Result<PaymentInitiation> {
-        let account_url = self.read_setting("livepix_account_url").await?;
-        let price_cents_str = self.read_setting("livepix_price_cents").await?;
-        let currency = self.read_setting("livepix_currency").await?;
+        let account_url = self.read_setting("livepix_account_url", self.config.livepix_account_url.as_deref()).await?;
+        let price_cents_str = self.read_setting("livepix_price_cents", self.config.livepix_price_cents.as_deref()).await?;
+        let currency = self.read_setting("livepix_currency", self.config.livepix_currency.as_deref()).await?;
 
-        let lang_code = self.read_setting("language").await.unwrap_or_else(|_| "en".to_string());
+        let lang_code = self.read_setting("bot_language", None).await.unwrap_or_else(|_| "en".to_string());
         let l = i18n::Lang::from_code(&lang_code);
 
         let price_cents: i64 = price_cents_str.parse().unwrap_or(0);
@@ -168,16 +182,12 @@ impl PaymentProvider for LivePixProvider {
         let instructions = if account_url.is_empty() {
             i18n::livepix_not_configured(l).to_string()
         } else {
-            i18n::livepix_instructions(l, &identifier, &currency, &price_display)
+            i18n::livepix_instructions(l, &identifier, &currency, &price_display, &account_url)
         };
 
         Ok(PaymentInitiation {
             external_ref: Some(identifier),
-            payment_url: if account_url.is_empty() {
-                None
-            } else {
-                Some(account_url)
-            },
+            payment_url: None, // URL is embedded in instructions HTML
             instructions,
         })
     }
@@ -250,7 +260,7 @@ impl PaymentProvider for LivePixProvider {
 
         // Check against configured minimum price
         let price_cents_str = self
-            .read_setting("livepix_price_cents")
+            .read_setting("livepix_price_cents", self.config.livepix_price_cents.as_deref())
             .await
             .unwrap_or_else(|_| "0".to_string());
         let price_cents: i64 = price_cents_str.parse().unwrap_or(0);

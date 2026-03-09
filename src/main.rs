@@ -62,12 +62,12 @@ async fn main() -> anyhow::Result<()> {
 
     // Load language setting
     let lang_code: String =
-        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'language'")
+        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'bot_language'")
             .fetch_optional(&pool)
             .await?
             .unwrap_or_else(|| "en".to_string());
     let lang = Arc::new(RwLock::new(i18n::Lang::from_code(&lang_code)));
-    tracing::info!("Language: {}", lang_code);
+    tracing::info!("Bot language: {}", lang_code);
 
     // Create in-memory dialogue storage (state resets on restart; swap for a
     // persistent implementation if needed — see src/bot/state.rs for notes).

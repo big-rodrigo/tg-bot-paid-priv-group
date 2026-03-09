@@ -40,6 +40,7 @@ pub struct Question {
     pub required: bool,
     pub media_path: Option<String>,
     pub media_type: Option<String>,
+    pub media_file_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

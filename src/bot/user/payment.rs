@@ -90,7 +90,10 @@ pub async fn handle_payment_selection(
                 .await?;
 
             if let Some(url) = &initiation.payment_url {
-                bot.send_message(chat_id, url.as_str()).await?;
+                let link_msg = format!("<a href=\"{url}\">{url}</a>");
+                bot.send_message(chat_id, &link_msg)
+                    .parse_mode(teloxide::types::ParseMode::Html)
+                    .await?;
             }
 
             dialogue

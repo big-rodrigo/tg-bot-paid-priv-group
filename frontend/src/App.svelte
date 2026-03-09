@@ -28,7 +28,7 @@
     window.addEventListener('hashchange', onHashChange);
 
     // Load language setting (fire-and-forget)
-    settings.get('language').then((langSetting) => {
+    settings.get('admin_language').then((langSetting) => {
       setLang(langSetting.value as 'en' | 'pt-BR');
     }).catch(() => {
       // Default to English

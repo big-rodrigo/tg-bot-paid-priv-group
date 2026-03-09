@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use teloxide::{
     prelude::*,
-    types::{ChatId, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Message, ParseMode},
+    types::{ChatId, FileId, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Message, ParseMode},
 };
 use tokio::sync::RwLock;
 
@@ -17,25 +17,45 @@ fn escape_html(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
+/// Extracts the Telegram file_id from a sent message based on media type.
+fn extract_file_id(msg: &Message, media_type: &str) -> Option<String> {
+    match media_type {
+        "image" => msg.photo().and_then(|photos| {
+            photos.iter().max_by_key(|p| p.width * p.height).map(|p| p.file.id.to_string())
+        }),
+        "video" => msg.video().map(|v| v.file.id.to_string()),
+        "animation" => msg.animation().map(|a| a.file.id.to_string()),
+        _ => msg.document().map(|d| d.file.id.to_string()),
+    }
+}
+
 /// Sends a message that may include a media attachment (image/video/animation).
 /// If media is present, uses the appropriate Telegram media method with caption.
 /// Falls back to a plain text message when no media is attached.
 /// Telegram caption limit is 1024 chars — if text exceeds that, media is sent
 /// without caption first, then text as a separate message.
+///
+/// If `media_file_id` is provided, uses Telegram's cached file instead of re-uploading.
+/// Returns the Telegram file_id of the sent media (if any) for caching.
 pub(crate) async fn send_media_or_text(
     bot: &Bot,
     chat_id: ChatId,
     text: &str,
     media_path: Option<&str>,
     media_type: Option<&str>,
+    media_file_id: Option<&str>,
     reply_markup: Option<InlineKeyboardMarkup>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
     match (media_path, media_type) {
         (Some(path), Some(mtype)) => {
-            let input_file = InputFile::file(std::path::Path::new(path));
+            let input_file = if let Some(fid) = media_file_id {
+                InputFile::file_id(FileId(fid.to_owned()))
+            } else {
+                InputFile::file(std::path::Path::new(path))
+            };
             let text_fits_caption = text.len() <= 1024;
 
-            match mtype {
+            let sent_msg = match mtype {
                 "image" => {
                     let mut req = bot.send_photo(chat_id, input_file);
                     if text_fits_caption {
@@ -46,10 +66,11 @@ pub(crate) async fn send_media_or_text(
                             req = req.reply_markup(kb.clone());
                         }
                     }
-                    req.await?;
+                    req.await?
                 }
                 "video" => {
-                    let mut req = bot.send_video(chat_id, input_file);
+                    let mut req = bot.send_video(chat_id, input_file)
+                        .supports_streaming(true);
                     if text_fits_caption {
                         req = req.caption(text).parse_mode(ParseMode::Html);
                     }
@@ -58,7 +79,7 @@ pub(crate) async fn send_media_or_text(
                             req = req.reply_markup(kb.clone());
                         }
                     }
-                    req.await?;
+                    req.await?
                 }
                 "animation" => {
                     let mut req = bot.send_animation(chat_id, input_file);
@@ -70,7 +91,7 @@ pub(crate) async fn send_media_or_text(
                             req = req.reply_markup(kb.clone());
                         }
                     }
-                    req.await?;
+                    req.await?
                 }
                 _ => {
                     // Unknown media type — send as document with caption
@@ -83,9 +104,9 @@ pub(crate) async fn send_media_or_text(
                             req = req.reply_markup(kb.clone());
                         }
                     }
-                    req.await?;
+                    req.await?
                 }
-            }
+            };
 
             // If text was too long for caption, send it as a separate message
             if !text_fits_caption {
@@ -95,6 +116,13 @@ pub(crate) async fn send_media_or_text(
                 }
                 msg_req.await?;
             }
+
+            // Return file_id from sent message (only useful when we uploaded fresh)
+            if media_file_id.is_none() {
+                Ok(extract_file_id(&sent_msg, mtype))
+            } else {
+                Ok(None)
+            }
         }
         _ => {
             // No media — plain text message
@@ -103,7 +131,29 @@ pub(crate) async fn send_media_or_text(
                 req = req.reply_markup(kb);
             }
             req.await?;
+            Ok(None)
         }
+    }
+}
+
+/// Helper: sends media via `send_media_or_text` and caches the file_id if it was a fresh upload.
+async fn send_and_cache_file_id(
+    bot: &Bot,
+    chat_id: ChatId,
+    pool: &DbPool,
+    question_id: i64,
+    text: &str,
+    media_path: Option<&str>,
+    media_type: Option<&str>,
+    media_file_id: Option<&str>,
+    reply_markup: Option<InlineKeyboardMarkup>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let new_file_id = send_media_or_text(
+        bot, chat_id, text, media_path, media_type, media_file_id, reply_markup,
+    )
+    .await?;
+    if let Some(fid) = new_file_id {
+        let _ = queries::questions::update_media_file_id(pool, question_id, &fid).await;
     }
     Ok(())
 }
@@ -118,13 +168,16 @@ pub async fn send_question(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let media_path = question.media_path.as_deref();
     let media_type = question.media_type.as_deref();
+    let media_file_id = question.media_file_id.as_deref();
 
     match question.question_type.as_str() {
         "button" => {
             let options = queries::questions::list_options(pool, question.id).await?;
             if options.is_empty() {
-                send_media_or_text(bot, chat_id, &question.text, media_path, media_type, None)
-                    .await?;
+                send_and_cache_file_id(
+                    bot, chat_id, pool, question.id,
+                    &question.text, media_path, media_type, media_file_id, None,
+                ).await?;
                 return Ok(());
             }
             let buttons: Vec<Vec<InlineKeyboardButton>> = options
@@ -132,29 +185,29 @@ pub async fn send_question(
                 .map(|opt| {
                     vec![InlineKeyboardButton::callback(
                         opt.label.clone(),
-                        format!("opt:{}", opt.id),
+                        format!("q{}:opt:{}", question.id, opt.id),
                     )]
                 })
                 .collect();
             let keyboard = InlineKeyboardMarkup::new(buttons);
-            send_media_or_text(
-                bot,
-                chat_id,
-                &question.text,
-                media_path,
-                media_type,
-                Some(keyboard),
-            )
-            .await?;
+            send_and_cache_file_id(
+                bot, chat_id, pool, question.id,
+                &question.text, media_path, media_type, media_file_id, Some(keyboard),
+            ).await?;
         }
         "image" => {
             let text = format!("{}\n\n{}", question.text, i18n::photo_prompt(l));
-            send_media_or_text(bot, chat_id, &text, media_path, media_type, None).await?;
+            send_and_cache_file_id(
+                bot, chat_id, pool, question.id,
+                &text, media_path, media_type, media_file_id, None,
+            ).await?;
         }
         _ => {
             // text, info, or unknown — just send the text
-            send_media_or_text(bot, chat_id, &question.text, media_path, media_type, None)
-                .await?;
+            send_and_cache_file_id(
+                bot, chat_id, pool, question.id,
+                &question.text, media_path, media_type, media_file_id, None,
+            ).await?;
         }
     }
     Ok(())
@@ -188,13 +241,10 @@ pub async fn start_phase(
             .await?;
 
             if q.question_type == "info" {
-                send_media_or_text(
-                    bot,
-                    chat_id,
-                    &q.text,
-                    q.media_path.as_deref(),
-                    q.media_type.as_deref(),
-                    None,
+                send_and_cache_file_id(
+                    bot, chat_id, pool, q.id,
+                    &q.text, q.media_path.as_deref(), q.media_type.as_deref(),
+                    q.media_file_id.as_deref(), None,
                 )
                 .await?;
                 advance(bot, dialogue, pool, payment_provider, chat_id, user_id, phase_id, &q, l)
@@ -339,34 +389,75 @@ pub async fn handle_callback(
         None => return Ok(()),
     };
 
-    // Callback data format: "opt:<option_id>"
-    if let Some(opt_id_str) = data.strip_prefix("opt:") {
-        if let Ok(option_id) = opt_id_str.parse::<i64>() {
-            let user_telegram_id = q.from.id.0 as i64;
-            let user = queries::users::get_by_telegram_id(&pool, user_telegram_id)
-                .await?
-                .ok_or_else(|| AppError::NotFound("user not found".into()))?;
+    // Callback data format: "q<question_id>:opt:<option_id>"
+    // Also accepts legacy "opt:<option_id>" for backwards compat with in-flight messages
+    let parsed = if let Some(rest) = data.strip_prefix("q") {
+        // New format: "q<qid>:opt:<oid>"
+        rest.split_once(":opt:").and_then(|(qid_str, oid_str)| {
+            let qid = qid_str.parse::<i64>().ok()?;
+            let oid = oid_str.parse::<i64>().ok()?;
+            Some((qid, oid))
+        })
+    } else if let Some(oid_str) = data.strip_prefix("opt:") {
+        // Legacy format: "opt:<oid>" — assume current question
+        oid_str.parse::<i64>().ok().map(|oid| (question_id, oid))
+    } else {
+        None
+    };
 
-            let question = queries::questions::get_by_id(&pool, question_id)
-                .await?
-                .ok_or_else(|| AppError::NotFound("question not found".into()))?;
-
-            queries::answers::save_option(&pool, user.id, question_id, option_id).await?;
-
-            let chat_id = ChatId(user_telegram_id);
-            advance(
-                &bot,
-                &dialogue,
-                &pool,
-                &payment_provider,
-                chat_id,
-                user.id,
-                phase_id,
-                &question,
-                l,
-            )
-            .await?;
+    if let Some((callback_question_id, option_id)) = parsed {
+        // Ignore stale callbacks from a previous question
+        if callback_question_id != question_id {
+            return Ok(());
         }
+
+        let user_telegram_id = q.from.id.0 as i64;
+        let user = queries::users::get_by_telegram_id(&pool, user_telegram_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound("user not found".into()))?;
+
+        let question = queries::questions::get_by_id(&pool, question_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound("question not found".into()))?;
+
+        queries::answers::save_option(&pool, user.id, question_id, option_id).await?;
+
+        // Edit the original message to show selected option and remove keyboard
+        if let Some(msg) = q.message {
+            if let Some(msg) = msg.regular_message() {
+                let option_label = queries::questions::get_option_by_id(&pool, option_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|o| o.label);
+                if let Some(label) = option_label {
+                    let original_text = msg.text().or(msg.caption()).unwrap_or(&question.text);
+                    let new_text = format!("{}\n\n✓ {}", original_text, label);
+                    let _ = bot
+                        .edit_message_text(msg.chat.id, msg.id, new_text)
+                        .parse_mode(ParseMode::Html)
+                        .await;
+                } else {
+                    let _ = bot
+                        .edit_message_reply_markup(msg.chat.id, msg.id)
+                        .await;
+                }
+            }
+        }
+
+        let chat_id = ChatId(user_telegram_id);
+        advance(
+            &bot,
+            &dialogue,
+            &pool,
+            &payment_provider,
+            chat_id,
+            user.id,
+            phase_id,
+            &question,
+            l,
+        )
+        .await?;
     }
 
     Ok(())
@@ -404,13 +495,10 @@ pub(crate) async fn advance(
             .await?;
 
             if next_q.question_type == "info" {
-                send_media_or_text(
-                    bot,
-                    chat_id,
-                    &next_q.text,
-                    next_q.media_path.as_deref(),
-                    next_q.media_type.as_deref(),
-                    None,
+                send_and_cache_file_id(
+                    bot, chat_id, pool, next_q.id,
+                    &next_q.text, next_q.media_path.as_deref(), next_q.media_type.as_deref(),
+                    next_q.media_file_id.as_deref(), None,
                 )
                 .await?;
                 after_pos = next_q.position;

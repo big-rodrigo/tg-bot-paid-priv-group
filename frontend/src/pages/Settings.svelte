@@ -3,8 +3,9 @@
   import { settings, debug } from '../lib/api';
   import { t, getLang, setLang, type Lang } from '../lib/i18n.svelte';
 
-  // Language
-  let selectedLang: Lang = $state(getLang());
+  // Language (separate settings for admin UI and bot)
+  let adminLang: Lang = $state(getLang());
+  let botLang: Lang = $state('en');
 
   // LivePix settings
   let livepixUrl = $state('');
@@ -24,16 +25,18 @@
 
   onMount(async () => {
     try {
-      const [urlData, priceData, currencyData, langData] = await Promise.all([
+      const [urlData, priceData, currencyData, adminLangData, botLangData] = await Promise.all([
         settings.get('livepix_account_url').catch(() => ({ value: '' })),
         settings.get('livepix_price_cents').catch(() => ({ value: '0' })),
         settings.get('livepix_currency').catch(() => ({ value: 'BRL' })),
-        settings.get('language').catch(() => ({ value: 'en' })),
+        settings.get('admin_language').catch(() => ({ value: 'en' })),
+        settings.get('bot_language').catch(() => ({ value: 'en' })),
       ]);
       livepixUrl = urlData.value;
       livepixPriceCents = priceData.value;
       livepixCurrency = currencyData.value;
-      selectedLang = langData.value as Lang;
+      adminLang = adminLangData.value as Lang;
+      botLang = botLangData.value as Lang;
     } catch (e: any) {
       error = e.message;
     } finally {
@@ -41,10 +44,18 @@
     }
   });
 
-  async function saveLang() {
+  async function saveAdminLang() {
     try {
-      await settings.update('language', selectedLang);
-      setLang(selectedLang);
+      await settings.update('admin_language', adminLang);
+      setLang(adminLang);
+    } catch (e: any) {
+      error = e.message;
+    }
+  }
+
+  async function saveBotLang() {
+    try {
+      await settings.update('bot_language', botLang);
     } catch (e: any) {
       error = e.message;
     }
@@ -108,10 +119,21 @@
 {#if error}<p class="error">{error}</p>{/if}
 
 <section class="card">
-  <h2>{t('settings.language')}</h2>
-  <p class="hint">{t('settings.languageHint')}</p>
+  <h2>{t('settings.adminLanguage')}</h2>
+  <p class="hint">{t('settings.adminLanguageHint')}</p>
   <div class="field">
-    <select bind:value={selectedLang} onchange={saveLang}>
+    <select bind:value={adminLang} onchange={saveAdminLang}>
+      <option value="en">English</option>
+      <option value="pt-BR">Português (Brasil)</option>
+    </select>
+  </div>
+</section>
+
+<section class="card">
+  <h2>{t('settings.botLanguage')}</h2>
+  <p class="hint">{t('settings.botLanguageHint')}</p>
+  <div class="field">
+    <select bind:value={botLang} onchange={saveBotLang}>
       <option value="en">English</option>
       <option value="pt-BR">Português (Brasil)</option>
     </select>

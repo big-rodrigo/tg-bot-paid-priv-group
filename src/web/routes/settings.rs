@@ -49,7 +49,7 @@ pub async fn update(
     .await?;
 
     // Sync in-memory language cache
-    if key == "language" {
+    if key == "bot_language" {
         let mut guard = s.lang.write().await;
         *guard = Lang::from_code(&body.value);
     }

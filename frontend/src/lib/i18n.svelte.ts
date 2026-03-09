@@ -207,8 +207,10 @@ const translations: Record<string, Record<Lang, string>> = {
 
   // ── Settings ──
   'settings.title': { en: 'Settings', 'pt-BR': 'Configurações' },
-  'settings.language': { en: 'Language', 'pt-BR': 'Idioma' },
-  'settings.languageHint': { en: 'Select the language for the bot messages and admin interface.', 'pt-BR': 'Selecione o idioma para as mensagens do bot e a interface de administração.' },
+  'settings.adminLanguage': { en: 'Admin Interface Language', 'pt-BR': 'Idioma da Interface Admin' },
+  'settings.adminLanguageHint': { en: 'Language used for this admin interface.', 'pt-BR': 'Idioma usado para esta interface de administração.' },
+  'settings.botLanguage': { en: 'Bot Language', 'pt-BR': 'Idioma do Bot' },
+  'settings.botLanguageHint': { en: 'Language used for messages sent to Telegram users.', 'pt-BR': 'Idioma usado para mensagens enviadas aos usuários do Telegram.' },
   'settings.livepix': { en: 'LivePix Payment', 'pt-BR': 'Pagamento LivePix' },
   'settings.livepixHint': { en: 'Configure the LivePix donation page that users will be sent to for payment. Set LIVEPIX_CLIENT_ID and LIVEPIX_CLIENT_SECRET env vars to enable.', 'pt-BR': 'Configure a página de doação do LivePix para onde os usuários serão enviados para pagamento. Defina as variáveis de ambiente LIVEPIX_CLIENT_ID e LIVEPIX_CLIENT_SECRET para ativar.' },
   'settings.donationUrl': { en: 'Donation page URL', 'pt-BR': 'URL da página de doação' },

@@ -50,6 +50,7 @@ pub async fn deliver_invites(
                 position: i64,
                 media_path: Option<String>,
                 media_type: Option<String>,
+                media_file_id: Option<String>,
             },
             Rule { rule_id: i64, group_id: i64, position: i64 },
         }
@@ -62,6 +63,7 @@ pub async fn deliver_invites(
                     position: q.position,
                     media_path: q.media_path.clone(),
                     media_type: q.media_type.clone(),
+                    media_file_id: q.media_file_id.clone(),
                 });
             }
         }
@@ -83,6 +85,7 @@ pub async fn deliver_invites(
                     text,
                     media_path,
                     media_type,
+                    media_file_id,
                     ..
                 } => {
                     crate::bot::user::registration::send_media_or_text(
@@ -91,6 +94,7 @@ pub async fn deliver_invites(
                         text,
                         media_path.as_deref(),
                         media_type.as_deref(),
+                        media_file_id.as_deref(),
                         None,
                     )
                     .await
