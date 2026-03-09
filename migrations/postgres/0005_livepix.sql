@@ -3,7 +3,7 @@ ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_provider_check;
 ALTER TABLE payments ADD CONSTRAINT payments_provider_check
     CHECK(provider IN ('external', 'telegram', 'livepix'));
 
-ALTER TABLE payments ADD COLUMN IF NOT EXISTS price_cents INTEGER;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS price_cents BIGINT;
 
 -- LivePix settings (editable via admin web UI)
 INSERT INTO settings (key, value) VALUES ('livepix_account_url', '') ON CONFLICT DO NOTHING;

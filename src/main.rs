@@ -57,30 +57,15 @@ async fn main() -> anyhow::Result<()> {
             .expect("Failed to run SQLite migrations");
         DbPool::Sqlite(p)
     } else {
-        // Run migrations on a separate connection when DATABASE_MIGRATION_URL is set.
-        // This avoids PgBouncer's prepared-statement conflicts during migration.
-        let migration_url = config.database_migration_url.as_deref()
-            .unwrap_or(&config.database_url);
-        let migration_opts = sqlx::postgres::PgConnectOptions::from_str(migration_url)
-            .expect("Invalid DATABASE_MIGRATION_URL");
-        let migration_pool = sqlx::PgPool::connect_with(migration_opts)
-            .await
-            .expect("Failed to connect to database for migrations");
-        sqlx::migrate!("./migrations/postgres")
-            .run(&migration_pool)
-            .await
-            .expect("Failed to run PostgreSQL migrations");
-        migration_pool.close().await;
-
-        // App pool: disable statement cache for PgBouncer compatibility.
-        let mut pg_opts = sqlx::postgres::PgConnectOptions::from_str(&config.database_url)
+        let pg_opts = sqlx::postgres::PgConnectOptions::from_str(&config.database_url)
             .expect("Invalid DATABASE_URL");
-        if config.database_url.contains("pgbouncer=true") {
-            pg_opts = pg_opts.statement_cache_capacity(0);
-        }
         let p = sqlx::PgPool::connect_with(pg_opts)
             .await
             .expect("Failed to connect to PostgreSQL database");
+        sqlx::migrate!("./migrations/postgres")
+            .run(&p)
+            .await
+            .expect("Failed to run PostgreSQL migrations");
         DbPool::Postgres(p)
     };
 

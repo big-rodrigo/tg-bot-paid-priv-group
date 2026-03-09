@@ -48,6 +48,7 @@ macro_rules! db_query_as {
             $crate::db::DbPool::Postgres(ref __p) => {
                 let __sql = $crate::db::pg_placeholders($sql);
                 sqlx::query_as::<_, $T>(&__sql)
+                    .persistent(false)
                     $(.bind($bind))*
                     .$fetch(__p)
                     .await
@@ -73,6 +74,7 @@ macro_rules! db_execute {
             $crate::db::DbPool::Postgres(ref __p) => {
                 let __sql = $crate::db::pg_placeholders($sql);
                 sqlx::query(&__sql)
+                    .persistent(false)
                     $(.bind($bind))*
                     .execute(__p)
                     .await
@@ -98,6 +100,7 @@ macro_rules! db_query_scalar {
             $crate::db::DbPool::Postgres(ref __p) => {
                 let __sql = $crate::db::pg_placeholders($sql);
                 sqlx::query_scalar::<_, $T>(&__sql)
+                    .persistent(false)
                     $(.bind($bind))*
                     .$fetch(__p)
                     .await

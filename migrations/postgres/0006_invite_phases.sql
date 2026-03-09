@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS invite_rules (
     id          BIGSERIAL PRIMARY KEY,
     phase_id    BIGINT NOT NULL REFERENCES phases(id) ON DELETE CASCADE,
     group_id    BIGINT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-    position    INTEGER NOT NULL DEFAULT 0,
+    position    BIGINT NOT NULL DEFAULT 0,
     UNIQUE(phase_id, group_id)
 );
 

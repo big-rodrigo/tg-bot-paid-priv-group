@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS payments (
     provider           TEXT    NOT NULL CHECK(provider IN ('external', 'telegram')),
     external_ref       TEXT,
     telegram_charge_id TEXT,
-    amount             INTEGER,
+    amount             BIGINT,
     currency           TEXT,
     status             TEXT NOT NULL DEFAULT 'pending'
                            CHECK(status IN ('pending', 'completed', 'failed', 'refunded')),

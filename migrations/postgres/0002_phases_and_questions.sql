@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS phases (
     id          BIGSERIAL PRIMARY KEY,
     name        TEXT    NOT NULL,
     description TEXT,
-    position    INTEGER NOT NULL DEFAULT 0,
+    position    BIGINT NOT NULL DEFAULT 0,
     active      BOOLEAN NOT NULL DEFAULT TRUE
 );
 
@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS questions (
     phase_id      BIGINT NOT NULL REFERENCES phases(id) ON DELETE CASCADE,
     text          TEXT    NOT NULL,
     question_type TEXT    NOT NULL CHECK(question_type IN ('button', 'text', 'image')),
-    position      INTEGER NOT NULL DEFAULT 0,
+    position      BIGINT NOT NULL DEFAULT 0,
     required      BOOLEAN NOT NULL DEFAULT TRUE
 );
 
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS question_options (
     question_id BIGINT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
     label       TEXT    NOT NULL,
     value       TEXT    NOT NULL,
-    position    INTEGER NOT NULL DEFAULT 0
+    position    BIGINT NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS answers (
