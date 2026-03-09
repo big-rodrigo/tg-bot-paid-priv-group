@@ -13,12 +13,6 @@ impl Lang {
         }
     }
 
-    pub fn code(&self) -> &'static str {
-        match self {
-            Lang::En => "en",
-            Lang::PtBr => "pt-BR",
-        }
-    }
 }
 
 // ── Welcome ──────────────────────────────────────────────────────────────────
@@ -129,48 +123,6 @@ pub fn pay_livepix(l: Lang) -> &'static str {
     match l {
         Lang::En => "Pay via LivePix",
         Lang::PtBr => "Pagar via LivePix",
-    }
-}
-
-pub fn pay_telegram(l: Lang) -> &'static str {
-    match l {
-        Lang::En => "Pay via Card / Wallet",
-        Lang::PtBr => "Pagar via Cartão / Carteira",
-    }
-}
-
-pub fn pay_external(l: Lang) -> &'static str {
-    match l {
-        Lang::En => "Pay via External Gateway",
-        Lang::PtBr => "Pagar via Gateway Externo",
-    }
-}
-
-pub fn telegram_not_configured(l: Lang) -> &'static str {
-    match l {
-        Lang::En => "Telegram payments are not configured. Please choose another method.",
-        Lang::PtBr => "Pagamentos via Telegram não estão configurados. Por favor, escolha outro método.",
-    }
-}
-
-pub fn invoice_title(l: Lang) -> &'static str {
-    match l {
-        Lang::En => "Registration Access",
-        Lang::PtBr => "Acesso ao Registro",
-    }
-}
-
-pub fn invoice_description(l: Lang) -> &'static str {
-    match l {
-        Lang::En => "One-time payment for access to private groups",
-        Lang::PtBr => "Pagamento único para acesso a grupos privados",
-    }
-}
-
-pub fn invoice_label(l: Lang) -> &'static str {
-    match l {
-        Lang::En => "Access Fee",
-        Lang::PtBr => "Taxa de Acesso",
     }
 }
 

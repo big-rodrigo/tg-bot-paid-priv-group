@@ -268,10 +268,6 @@ impl PaymentProvider for LivePixProvider {
         })
     }
 
-    fn provider_name(&self) -> &'static str {
-        "livepix"
-    }
-
     fn get_cached_token(&self) -> Option<String> {
         self.token
             .try_read()

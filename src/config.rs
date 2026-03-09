@@ -13,15 +13,6 @@ pub struct AppConfig {
     /// Telegram username of the admin user (without @)
     pub admin_telegram_username: String,
 
-    /// External payment API endpoint (POST request with user data)
-    pub payment_api_url: Option<String>,
-
-    /// Bearer token / API key for the external payment API
-    pub payment_api_key: Option<String>,
-
-    /// If set, enables Telegram native payments using this provider token
-    pub telegram_payment_provider_token: Option<String>,
-
     /// LivePix OAuth2 client ID (enables LivePix payment provider when both are set)
     pub livepix_client_id: Option<String>,
 

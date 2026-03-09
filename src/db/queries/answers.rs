@@ -2,7 +2,7 @@ use chrono::NaiveDateTime;
 use serde::Serialize;
 
 use crate::{
-    db::{models::Answer, DbPool},
+    db::DbPool,
     db_execute, db_query_as,
     error::Result,
 };
@@ -49,11 +49,6 @@ pub async fn save_image(pool: &DbPool, user_id: i64, question_id: i64, file_id: 
          ON CONFLICT(user_id, question_id) DO UPDATE SET image_file_id = excluded.image_file_id",
         [user_id, question_id, file_id])?;
     Ok(())
-}
-
-pub async fn list_by_user(pool: &DbPool, user_id: i64) -> Result<Vec<Answer>> {
-    db_query_as!(pool, Answer, "SELECT * FROM answers WHERE user_id = ? ORDER BY created_at ASC", [user_id], fetch_all)
-        .map_err(Into::into)
 }
 
 pub async fn list_enriched_by_user(pool: &DbPool, user_id: i64) -> Result<Vec<EnrichedAnswer>> {

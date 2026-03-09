@@ -2,13 +2,14 @@
 
 ## Overview
 
-Single Rust binary that manages paid access to private Telegram groups. Users go through an admin-configured multi-phase registration, pay, and receive unique one-time invite links to all configured groups. The admin configures phases, questions, and groups through a local web interface (Svelte SPA) and via Telegram commands.
+Single Rust binary that manages paid access to private Telegram groups. Users go through an admin-configured multi-phase registration, pay via LivePix, and receive unique one-time invite links to all configured groups. The admin configures phases, questions, and groups through a local web interface (Svelte SPA) and via Telegram commands.
 
 ## Quick start
 
 ```bash
 cp .env.example .env
-# Required: BOT_API_KEY, ADMIN_TELEGRAM_USERNAME, WEB_INTERFACE_SECRET
+# Required: BOT_API_KEY, ADMIN_TELEGRAM_USERNAME, WEB_INTERFACE_SECRET,
+#           LIVEPIX_CLIENT_ID, LIVEPIX_CLIENT_SECRET
 cargo run
 ```
 
@@ -25,12 +26,14 @@ cd frontend && npm install && npm run build
 | `BOT_API_KEY` | yes | — | Telegram Bot token from @BotFather |
 | `ADMIN_TELEGRAM_USERNAME` | yes | — | Admin username without @ |
 | `WEB_INTERFACE_SECRET` | yes | — | Basic auth password for web UI |
+| `LIVEPIX_CLIENT_ID` | yes | — | LivePix OAuth2 client ID |
+| `LIVEPIX_CLIENT_SECRET` | yes | — | LivePix OAuth2 client secret |
 | `DATABASE_URL` | no | `sqlite:./data.db` | SQLite or Postgres URL |
-| `DATABASE_MIGRATION_URL` | no | — | Separate URL for migrations (use with PgBouncer) |
-| `PAYMENT_API_URL` | no | — | External payment API endpoint |
-| `PAYMENT_API_KEY` | no | — | Bearer token for external payment API |
-| `TELEGRAM_PAYMENT_PROVIDER_TOKEN` | no | — | Enables Telegram native payments |
+| `LIVEPIX_ACCOUNT_URL` | no | — | LivePix donation page URL (fallback when DB setting is not configured) |
+| `LIVEPIX_PRICE_CENTS` | no | — | Minimum price in cents (fallback when DB setting is not configured) |
+| `LIVEPIX_CURRENCY` | no | — | Currency code e.g. BRL (fallback when DB setting is not configured) |
 | `WEB_INTERFACE_PORT` | no | `3000` | Port for web interface |
+| `WEBHOOK_BASE_URL` | no | — | Public base URL (e.g. ngrok); logged on startup |
 | `RUST_LOG` | no | `info` | Tracing filter (e.g. `tg_bot=debug,tower_http=info`) |
 
 ## Architecture
@@ -48,7 +51,7 @@ Shared state is passed via `Arc<T>`:
 - `DbPool` (enum: `SqlitePool` or `PgPool`) — database connection pool
 - `Bot` — Telegram bot client (cheaply cloneable)
 - `Arc<AppConfig>` — parsed env vars
-- `Arc<dyn PaymentProvider + Send + Sync>` — selected payment provider
+- `Arc<dyn PaymentProvider + Send + Sync>` — LivePix payment provider
 
 ## Module map
 
@@ -73,6 +76,7 @@ src/
 │   ├── mod.rs            Dispatcher setup + dptree handler tree
 │   ├── state.rs          State enum, BotStorage, BotDialogue, HandlerResult
 │   ├── commands.rs       UserCommand + AdminCommand enums (BotCommands derive)
+│   ├── util.rs           Shared helpers (escape_html)
 │   ├── admin/
 │   │   ├── guards.rs     is_admin() filter — checks username vs ADMIN_TELEGRAM_USERNAME
 │   │   └── commands.rs   /admin /users /groups /phases /sendinvites handlers
@@ -82,17 +86,17 @@ src/
 │   └── user/
 │       ├── welcome.rs         /start handler — upserts user, starts phase flow
 │       ├── registration.rs    Phase/question handlers + send_question() helper
-│       ├── payment.rs         Payment selection keyboard, pre_checkout, successful_payment
+│       ├── media.rs           send_media_or_text(), send_and_cache_file_id()
+│       ├── payment.rs         LivePix payment selection keyboard
 │       └── invite.rs          deliver_invites() — called after payment confirmed
 │
 ├── payment/
 │   ├── mod.rs            PaymentProvider trait + PaymentInitiation + WebhookEvent
-│   ├── external.rs       POSTs to PAYMENT_API_URL, verifies Bearer token on webhook
-│   └── telegram.rs       Telegram Payments scaffold (invoice sent from bot handler)
+│   └── livepix.rs        LivePix OAuth2 provider (only payment provider)
 │
 └── web/
     ├── mod.rs            create_router() — assembles protected + public routes + SPA
-    ├── state.rs          WebState { db, bot, config, payment_provider }
+    ├── state.rs          WebState { db, bot, config, payment_provider, lang }
     ├── auth.rs           Basic auth middleware (admin:<WEB_INTERFACE_SECRET>)
     └── routes/
         ├── phases.rs     GET/POST /api/phases, PUT /api/phases/reorder
@@ -100,7 +104,10 @@ src/
         ├── groups.rs     Groups CRUD
         ├── users.rs      Users list + answers + invite links
         ├── payments.rs   Payments list + POST /api/webhooks/payment (no auth)
-        └── admin.rs      POST /api/admin/send-invites/{id}, /revoke-links/{id}
+        ├── admin.rs      POST /api/admin/send-invites/{id}, /revoke-links/{id}
+        ├── settings.rs   GET/PUT /api/settings/{key}, GET /api/debug/livepix-token
+        ├── upload.rs     POST/DELETE /api/upload (media file management)
+        └── invite_rules.rs  Invite rules + conditions CRUD
 ```
 
 ## Bot dialogue state machine
@@ -114,19 +121,35 @@ InPhase { phase_id, question_id }
   │ advance through questions → phases
   ▼
 AwaitingPayment
-  │ user picks payment method
-  ├─[external]──► AwaitingExternalPayment { payment_id }
-  │                  webhook POST /api/webhooks/payment
-  │                  → deliver_invites()
-  └─[telegram]──► AwaitingTelegramPayment { payment_id }
-                     successful_payment update
-                     → deliver_invites()
-                          ▼
-                       Registered
+  │ user clicks "Pay via LivePix"
+  ▼
+AwaitingPaymentConfirmation { payment_id }
+  │ webhook POST /api/webhooks/payment
+  │ → deliver_invites()
+  ▼
+Registered
 ```
 
 Storage: `InMemStorage<State>` — resets on restart. For persistence, implement the
 `teloxide::dispatching::dialogue::Storage` trait backed by `DbPool`.
+
+## Payment — LivePix
+
+LivePix is the sole payment provider. It uses OAuth2 client-credentials for API access.
+
+**Flow:**
+1. User completes all registration phases
+2. Bot shows "Pay via LivePix" button
+3. User clicks → bot sends instructions: open LivePix page, type `@username`, pay ≥ minimum
+4. LivePix sends webhook to `POST /api/webhooks/payment`
+5. Bot verifies payment via LivePix Messages API, marks payment complete, delivers invite links
+
+**Proactive check:** If the webhook doesn't arrive, `/mylinks` command triggers `check_payment()` which queries the LivePix Messages API directly.
+
+**Settings** (configurable via admin UI or `/api/settings/{key}`):
+- `livepix_account_url` — donation page URL
+- `livepix_price_cents` — minimum payment in cents
+- `livepix_currency` — currency code (e.g. `BRL`)
 
 ## Database
 
@@ -138,7 +161,7 @@ Storage: `InMemStorage<State>` — resets on restart. For persistence, implement
 - No `sqlx::AnyPool` — `NaiveDateTime` doesn't implement `Decode<'_, Any>` in sqlx 0.8
 
 **Tables:** `users`, `groups`, `phases`, `questions`, `question_options`, `answers`,
-`user_registration`, `payments`, `invite_links`
+`user_registration`, `payments`, `invite_links`, `invite_rules`, `invite_rule_conditions`, `settings`
 
 **To switch between SQLite and PostgreSQL:** just change `DATABASE_URL`:
 - SQLite: `DATABASE_URL=sqlite:./data.db`
@@ -147,7 +170,7 @@ Storage: `InMemStorage<State>` — resets on restart. For persistence, implement
 ## Web API
 
 All `/api/*` routes require `Authorization: Basic base64(admin:<WEB_INTERFACE_SECRET>)`.
-Exception: `POST /api/webhooks/payment` is public (verified by Bearer token from payment provider).
+Exception: `POST /api/webhooks/payment` is public (verified by LivePix client ID).
 
 ```
 Phases:       GET/POST /api/phases
@@ -173,6 +196,17 @@ Payments:     GET  /api/payments                    ?status=
 
 Admin:        POST /api/admin/send-invites/{user_id}
               POST /api/admin/revoke-links/{user_id}
+
+Settings:     GET/PUT /api/settings/{key}
+              GET     /api/debug/livepix-token
+
+Upload:       POST/DELETE /api/upload
+
+Invite Rules: GET/POST /api/phases/{id}/invite-rules
+              PUT/DEL  /api/invite-rules/{id}
+              GET/POST /api/invite-rules/{id}/conditions
+              PUT/DEL  /api/invite-rule-conditions/{id}
+              GET      /api/invite-rules/questions
 ```
 
 The Svelte SPA is served from `static/` as a fallback. Build it with:
@@ -199,20 +233,6 @@ POST /api/questions/2/options  {"label":"26-35","value":"26_35","position":1}
 POST /api/phases/1/questions  {"text":"Upload a photo ID","question_type":"image","position":2}
 ```
 
-## Adding a payment provider
-
-1. Create `src/payment/my_provider.rs` implementing the `PaymentProvider` trait:
-   ```rust
-   #[async_trait]
-   impl PaymentProvider for MyProvider {
-       async fn initiate(&self, user: &User, payment_id: i64) -> Result<PaymentInitiation> { ... }
-       async fn verify_webhook(&self, headers: &HeaderMap, body: &Bytes) -> Result<WebhookEvent> { ... }
-       fn provider_name(&self) -> &'static str { "my_provider" }
-   }
-   ```
-2. Add a new env var (e.g. `MY_PROVIDER_KEY`) to `AppConfig` in `src/config.rs`
-3. Wire it up in the provider selection block in `src/main.rs`
-
 ## Group setup
 
 The bot must be an **administrator** in every private group with permission to create invite links.
@@ -228,6 +248,8 @@ POST /api/groups  {"telegram_id": -1001234567890, "title": "My Private Group"}
 - Admin guard: `src/bot/admin/guards.rs::is_admin()` — case-insensitive username match
 - Invite links: created with `member_limit=1`, stored in `invite_links` table, marked `used_at` when `ChatMemberUpdated` arrives in `group/member_join.rs`
 - DB: use `sqlx::query_as::<_, ModelType>(sql).bind(...).fetch_*(pool)` pattern throughout
+- HTML escaping: use `crate::bot::util::escape_html()` for embedding user data in Telegram HTML messages
+- Media sending: use helpers in `src/bot/user/media.rs` for sending messages with optional media attachments
 
 ## Frontend design system
 
@@ -278,5 +300,4 @@ All colors are hardcoded hex values; no CSS custom properties are used.
 ## Known limitations
 
 - Dialogue state is in-memory — lost on process restart
-- External payment API body/response shape is a stub in `src/payment/external.rs` — adjust when the real API is defined
-- Telegram Payments amount/currency is hardcoded to `$10.00 USD` in `src/bot/user/payment.rs`
+- LivePix settings (account URL, price, currency) must be configured via admin UI before payments work

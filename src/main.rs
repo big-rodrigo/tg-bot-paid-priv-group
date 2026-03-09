@@ -13,12 +13,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 
 use config::AppConfig;
 use db::DbPool;
-use payment::{
-    external::ExternalPaymentProvider,
-    livepix::LivePixProvider,
-    telegram::TelegramPaymentProvider,
-    PaymentProvider,
-};
+use payment::{livepix::LivePixProvider, PaymentProvider};
 use web::state::WebState;
 
 #[tokio::main]
@@ -85,27 +80,13 @@ async fn main() -> anyhow::Result<()> {
     // Build the Telegram bot
     let telegram_bot = teloxide::Bot::new(&config.bot_api_key);
 
-    // Select payment provider based on configuration
+    // Validate LivePix credentials and create the payment provider
+    if config.livepix_client_id.is_none() || config.livepix_client_secret.is_none() {
+        panic!("LIVEPIX_CLIENT_ID and LIVEPIX_CLIENT_SECRET are required");
+    }
+    tracing::info!("Payment provider: LivePix");
     let payment_provider: Arc<dyn PaymentProvider + Send + Sync> =
-        if config.telegram_payment_provider_token.is_some() {
-            tracing::info!("Payment provider: Telegram Payments");
-            Arc::new(TelegramPaymentProvider::new(
-                telegram_bot.clone(),
-                Arc::clone(&config),
-            ))
-        } else if config.livepix_client_id.is_some() && config.livepix_client_secret.is_some() {
-            tracing::info!("Payment provider: LivePix");
-            Arc::new(LivePixProvider::new(Arc::clone(&config), pool.clone()))
-        } else {
-            tracing::info!(
-                "Payment provider: External API ({})",
-                config
-                    .payment_api_url
-                    .as_deref()
-                    .unwrap_or("not configured")
-            );
-            Arc::new(ExternalPaymentProvider::new(Arc::clone(&config)))
-        };
+        Arc::new(LivePixProvider::new(Arc::clone(&config), pool.clone()));
 
     if let Some(ref base) = config.webhook_base_url {
         tracing::info!("Webhook endpoint: {base}/api/webhooks/payment");

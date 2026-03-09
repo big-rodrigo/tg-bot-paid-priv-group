@@ -3,6 +3,7 @@ pub mod commands;
 pub mod group;
 pub mod state;
 pub mod user;
+pub mod util;
 
 use std::sync::Arc;
 use teloxide::{
@@ -94,11 +95,6 @@ fn build_handler() -> teloxide::dispatching::UpdateHandler<Box<dyn std::error::E
             })
             .endpoint(user::invite::handle_mylinks),
         )
-        // Successful payment (Telegram Payments)
-        .branch(
-            dptree::filter(|msg: Message| msg.successful_payment().is_some())
-                .endpoint(user::payment::handle_successful_payment),
-        )
         // In-phase message handler (text / image answers)
         .branch(
             dptree::case![State::InPhase { phase_id, question_id }]
@@ -117,10 +113,6 @@ fn build_handler() -> teloxide::dispatching::UpdateHandler<Box<dyn std::error::E
                 .endpoint(user::payment::handle_payment_selection),
         );
 
-    // Branch for pre_checkout_query (Telegram Payments)
-    let pre_checkout_handler =
-        Update::filter_pre_checkout_query().endpoint(user::payment::handle_pre_checkout_query);
-
     // Branch for chat member updates (users joining groups via invite links)
     let chat_member_handler =
         Update::filter_chat_member().endpoint(group::member_join::handle);
@@ -132,7 +124,6 @@ fn build_handler() -> teloxide::dispatching::UpdateHandler<Box<dyn std::error::E
     dptree::entry()
         .branch(message_handler)
         .branch(callback_handler)
-        .branch(pre_checkout_handler)
         .branch(chat_member_handler)
         .branch(my_chat_member_handler)
 }

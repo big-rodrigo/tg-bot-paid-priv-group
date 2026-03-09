@@ -1,13 +1,12 @@
 use std::sync::Arc;
 use teloxide::{
     prelude::*,
-    types::{ChatId, InlineKeyboardButton, InlineKeyboardMarkup, Message},
+    types::{ChatId, InlineKeyboardButton, InlineKeyboardMarkup},
 };
 use tokio::sync::RwLock;
 
 use crate::{
     bot::state::{BotDialogue, HandlerResult, State},
-    config::AppConfig,
     db::{queries, DbPool},
     db_query_scalar,
     error::AppError,
@@ -15,18 +14,15 @@ use crate::{
     payment::PaymentProvider,
 };
 
-/// Sends the payment method selection keyboard, adapting labels to the configured provider.
+/// Sends the payment method selection keyboard.
 pub async fn send_payment_options(
     bot: &Bot,
     chat_id: ChatId,
-    payment_provider: &Arc<dyn PaymentProvider + Send + Sync>,
+    _payment_provider: &Arc<dyn PaymentProvider + Send + Sync>,
     l: Lang,
 ) -> HandlerResult {
-    let (label, callback) = match payment_provider.provider_name() {
-        "livepix" => (i18n::pay_livepix(l), "pay:livepix"),
-        "telegram" => (i18n::pay_telegram(l), "pay:telegram"),
-        _ => (i18n::pay_external(l), "pay:external"),
-    };
+    let label = i18n::pay_livepix(l);
+    let callback = "pay:livepix";
 
     let rows: Vec<Vec<InlineKeyboardButton>> =
         vec![vec![InlineKeyboardButton::callback(label, callback)]];
@@ -54,7 +50,7 @@ pub async fn handle_payment_selection(
     dialogue: BotDialogue,
     q: CallbackQuery,
     pool: DbPool,
-    config: Arc<AppConfig>,
+    _config: Arc<crate::config::AppConfig>,
     payment_provider: Arc<dyn PaymentProvider + Send + Sync>,
     lang: Arc<RwLock<Lang>>,
 ) -> HandlerResult {
@@ -69,15 +65,10 @@ pub async fn handle_payment_selection(
     let chat_id = ChatId(user_telegram_id);
 
     match q.data.as_deref() {
-        Some("pay:livepix") | Some("pay:external") => {
-            let provider_key = if q.data.as_deref() == Some("pay:livepix") {
-                "livepix"
-            } else {
-                "external"
-            };
+        Some("pay:livepix") => {
             let price_cents = read_price_cents(&pool).await;
             let payment_id =
-                queries::payments::create(&pool, user.id, provider_key, Some(price_cents)).await?;
+                queries::payments::create(&pool, user.id, "livepix", Some(price_cents)).await?;
             let initiation = payment_provider.initiate(&user, payment_id).await?;
 
             if let Some(ext_ref) = &initiation.external_ref {
@@ -96,43 +87,7 @@ pub async fn handle_payment_selection(
             }
 
             dialogue
-                .update(State::AwaitingExternalPayment { payment_id })
-                .await?;
-        }
-
-        Some("pay:telegram") => {
-            let provider_token = config
-                .telegram_payment_provider_token
-                .clone()
-                .unwrap_or_default();
-            if provider_token.is_empty() {
-                bot.send_message(chat_id, i18n::telegram_not_configured(l))
-                    .await?;
-                return Ok(());
-            }
-
-            let payment_id =
-                queries::payments::create(&pool, user.id, "telegram", None).await?;
-            let title = i18n::invoice_title(l);
-            let description = i18n::invoice_description(l);
-            let payload = payment_id.to_string();
-
-            bot.send_invoice(
-                chat_id,
-                title,
-                description,
-                &payload,
-                "USD",
-                vec![teloxide::types::LabeledPrice {
-                    label: i18n::invoice_label(l).to_string(),
-                    amount: 1000, // $10.00 in cents — configure as needed
-                }],
-            )
-            .provider_token(&provider_token)
-            .await?;
-
-            dialogue
-                .update(State::AwaitingTelegramPayment { payment_id })
+                .update(State::AwaitingPaymentConfirmation { payment_id })
                 .await?;
         }
 
@@ -141,54 +96,6 @@ pub async fn handle_payment_selection(
                 .await?;
         }
     }
-
-    Ok(())
-}
-
-/// Handles `pre_checkout_query` — must be answered within 10 seconds.
-pub async fn handle_pre_checkout_query(
-    bot: Bot,
-    query: teloxide::types::PreCheckoutQuery,
-) -> HandlerResult {
-    bot.answer_pre_checkout_query(query.id, true).await?;
-    Ok(())
-}
-
-/// Handles the `successful_payment` update for Telegram payments.
-pub async fn handle_successful_payment(
-    bot: Bot,
-    dialogue: BotDialogue,
-    msg: Message,
-    pool: DbPool,
-    lang: Arc<RwLock<Lang>>,
-) -> HandlerResult {
-    let l = *lang.read().await;
-    let successful_payment = match msg.successful_payment() {
-        Some(p) => p,
-        None => return Ok(()),
-    };
-
-    let payment_id: i64 = successful_payment.invoice_payload.parse().unwrap_or(0);
-
-    queries::payments::complete_telegram(
-        &pool,
-        payment_id,
-        &successful_payment.telegram_payment_charge_id.to_string(),
-    )
-    .await?;
-
-    let from = match msg.from.as_ref() {
-        Some(u) => u,
-        None => return Ok(()),
-    };
-
-    let user = queries::users::get_by_telegram_id(&pool, from.id.0 as i64)
-        .await?
-        .ok_or_else(|| AppError::NotFound("user not found".into()))?;
-
-    dialogue.update(State::Registered).await?;
-
-    super::invite::deliver_invites(bot, pool, user.id, user.telegram_id, l).await?;
 
     Ok(())
 }

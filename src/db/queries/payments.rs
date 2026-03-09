@@ -44,23 +44,6 @@ pub async fn complete_external(
         .map_err(Into::into)
 }
 
-pub async fn complete_telegram(
-    pool: &DbPool,
-    id: i64,
-    telegram_charge_id: &str,
-) -> Result<()> {
-    db_execute!(pool,
-        "UPDATE payments SET status = 'completed', telegram_charge_id = ?,
-         updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        [telegram_charge_id, id])?;
-    Ok(())
-}
-
-pub async fn get_by_id(pool: &DbPool, id: i64) -> Result<Option<Payment>> {
-    db_query_as!(pool, Payment, "SELECT * FROM payments WHERE id = ?", [id], fetch_optional)
-        .map_err(Into::into)
-}
-
 pub async fn get_completed_for_user(pool: &DbPool, user_id: i64) -> Result<Option<Payment>> {
     db_query_as!(pool, Payment,
         "SELECT * FROM payments WHERE user_id = ? AND status = 'completed' ORDER BY updated_at DESC LIMIT 1",

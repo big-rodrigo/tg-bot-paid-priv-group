@@ -5,17 +5,13 @@ use teloxide::{prelude::*, types::ChatId};
 use tokio::sync::RwLock;
 
 use crate::{
-    bot::{group::invite_manager, state::HandlerResult},
+    bot::{group::invite_manager, state::HandlerResult, util::escape_html},
     db::{models::Group, queries, DbPool},
     db_query_as, db_query_scalar,
     error::Result,
     i18n::{self, Lang},
     payment::{PaymentProvider, WebhookEvent},
 };
-
-fn escape_html(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-}
 
 /// Creates one-time invite links based on invite phase rules and sends them to the user.
 /// Called after payment is confirmed (both external webhook and Telegram payments).
@@ -90,7 +86,7 @@ pub async fn deliver_invites(
                     media_file_id,
                     ..
                 } => {
-                    crate::bot::user::registration::send_media_or_text(
+                    crate::bot::user::media::send_media_or_text(
                         &bot,
                         chat_id,
                         text,

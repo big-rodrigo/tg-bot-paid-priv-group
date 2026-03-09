@@ -1,16 +1,13 @@
 use async_trait::async_trait;
 use axum::http::HeaderMap;
 use bytes::Bytes;
-use serde::{Deserialize, Serialize};
 
 use crate::{
     db::models::{Payment, User},
     error::Result,
 };
 
-pub mod external;
 pub mod livepix;
-pub mod telegram;
 
 /// Returned by `PaymentProvider::initiate` to tell the bot what to show the user.
 #[derive(Debug)]
@@ -25,6 +22,7 @@ pub struct PaymentInitiation {
 
 /// Event parsed from an incoming webhook body.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum WebhookEvent {
     Completed {
         external_ref: String,
@@ -56,8 +54,6 @@ pub trait PaymentProvider: Send + Sync {
     /// Verify an incoming webhook and parse it into a `WebhookEvent`.
     async fn verify_webhook(&self, headers: &HeaderMap, body: &Bytes) -> Result<WebhookEvent>;
 
-    fn provider_name(&self) -> &'static str;
-
     /// Proactively check the payment provider's API for a completed payment
     /// matching the given pending payment record. Returns `Some(WebhookEvent::Completed{..})`
     /// if a matching payment is found, `None` otherwise.
@@ -73,12 +69,3 @@ pub trait PaymentProvider: Send + Sync {
     }
 }
 
-// ── Shared webhook payload shapes ──────────────────────────────────────────
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ExternalWebhookPayload {
-    pub event: String,
-    pub reference: String,
-    #[serde(default)]
-    pub reason: Option<String>,
-}

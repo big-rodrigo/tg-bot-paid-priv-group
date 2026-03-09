@@ -22,13 +22,8 @@ pub enum State {
     /// All phases complete, waiting for the user to choose a payment method
     AwaitingPayment,
 
-    /// User chose external payment; waiting for the webhook callback
-    AwaitingExternalPayment {
-        payment_id: i64,
-    },
-
-    /// Telegram invoice sent; waiting for pre_checkout_query + successful_payment
-    AwaitingTelegramPayment {
+    /// Payment initiated; waiting for the webhook callback
+    AwaitingPaymentConfirmation {
         payment_id: i64,
     },
 
