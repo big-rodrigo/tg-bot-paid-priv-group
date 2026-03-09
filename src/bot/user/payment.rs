@@ -9,6 +9,7 @@ use crate::{
     bot::state::{BotDialogue, HandlerResult, State},
     config::AppConfig,
     db::{queries, DbPool},
+    db_query_scalar,
     error::AppError,
     i18n::{self, Lang},
     payment::PaymentProvider,
@@ -40,12 +41,10 @@ pub async fn send_payment_options(
 
 /// Reads `livepix_price_cents` from the settings table; returns 0 on error.
 async fn read_price_cents(pool: &DbPool) -> i64 {
-    sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = 'livepix_price_cents'")
-        .fetch_optional(pool)
-        .await
+    db_query_scalar!(pool, String, "SELECT value FROM settings WHERE key = 'livepix_price_cents'", [], fetch_optional)
         .ok()
         .flatten()
-        .and_then(|v| v.parse().ok())
+        .and_then(|v: String| v.parse().ok())
         .unwrap_or(0)
 }
 

@@ -1,6 +1,6 @@
 use teloxide::{prelude::*, types::ChatId};
 
-use crate::{db::DbPool, error::Result};
+use crate::{db::DbPool, db_query_as, error::Result};
 
 /// Create a one-time invite link for a group.
 /// The link can only be used once (`member_limit = 1`).
@@ -27,10 +27,7 @@ pub async fn revoke_unused_for_user(bot: &Bot, pool: &DbPool, user_id: i64) -> R
     let links = queries::invite_links::revoke_all_unused_for_user(pool, user_id).await?;
 
     for link in &links {
-        let group = sqlx::query_as::<_, Group>("SELECT * FROM groups WHERE id = ?")
-            .bind(link.group_id)
-            .fetch_optional(pool)
-            .await?;
+        let group = db_query_as!(pool, Group, "SELECT * FROM groups WHERE id = ?", [link.group_id], fetch_optional)?;
 
         if let Some(group) = group {
             if let Err(e) = revoke_link(bot, group.telegram_id, &link.invite_link).await {

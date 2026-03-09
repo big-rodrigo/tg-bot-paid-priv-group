@@ -1,5 +1,6 @@
 use crate::{
     db::{models::Payment, DbPool},
+    db_execute, db_query_as,
     error::Result,
 };
 
@@ -9,25 +10,16 @@ pub async fn create(
     provider: &str,
     price_cents: Option<i64>,
 ) -> Result<i64> {
-    let row = sqlx::query(
-        "INSERT INTO payments (user_id, provider, price_cents, status) VALUES (?, ?, ?, 'pending')",
-    )
-    .bind(user_id)
-    .bind(provider)
-    .bind(price_cents)
-    .execute(pool)
-    .await?;
-    Ok(row.last_insert_rowid())
+    let (id,): (i64,) = db_query_as!(pool, (i64,),
+        "INSERT INTO payments (user_id, provider, price_cents, status) VALUES (?, ?, ?, 'pending') RETURNING id",
+        [user_id, provider, price_cents], fetch_one)?;
+    Ok(id)
 }
 
 pub async fn set_external_ref(pool: &DbPool, id: i64, external_ref: &str) -> Result<()> {
-    sqlx::query(
+    db_execute!(pool,
         "UPDATE payments SET external_ref = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-    )
-    .bind(external_ref)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        [external_ref, id])?;
     Ok(())
 }
 
@@ -38,7 +30,7 @@ pub async fn complete_external(
     amount: Option<i64>,
     currency: Option<&str>,
 ) -> Result<Option<Payment>> {
-    sqlx::query(
+    db_execute!(pool,
         "UPDATE payments
          SET status = 'completed',
              payload = ?,
@@ -46,18 +38,9 @@ pub async fn complete_external(
              currency = COALESCE(?, currency),
              updated_at = CURRENT_TIMESTAMP
          WHERE external_ref = ? AND status = 'pending'",
-    )
-    .bind(payload)
-    .bind(amount)
-    .bind(currency)
-    .bind(external_ref)
-    .execute(pool)
-    .await?;
+        [payload, amount, currency, external_ref])?;
 
-    sqlx::query_as::<_, Payment>("SELECT * FROM payments WHERE external_ref = ?")
-        .bind(external_ref)
-        .fetch_optional(pool)
-        .await
+    db_query_as!(pool, Payment, "SELECT * FROM payments WHERE external_ref = ?", [external_ref], fetch_optional)
         .map_err(Into::into)
 }
 
@@ -66,59 +49,41 @@ pub async fn complete_telegram(
     id: i64,
     telegram_charge_id: &str,
 ) -> Result<()> {
-    sqlx::query(
+    db_execute!(pool,
         "UPDATE payments SET status = 'completed', telegram_charge_id = ?,
          updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-    )
-    .bind(telegram_charge_id)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        [telegram_charge_id, id])?;
     Ok(())
 }
 
 pub async fn get_by_id(pool: &DbPool, id: i64) -> Result<Option<Payment>> {
-    sqlx::query_as::<_, Payment>("SELECT * FROM payments WHERE id = ?")
-        .bind(id)
-        .fetch_optional(pool)
-        .await
+    db_query_as!(pool, Payment, "SELECT * FROM payments WHERE id = ?", [id], fetch_optional)
         .map_err(Into::into)
 }
 
 pub async fn get_completed_for_user(pool: &DbPool, user_id: i64) -> Result<Option<Payment>> {
-    sqlx::query_as::<_, Payment>(
+    db_query_as!(pool, Payment,
         "SELECT * FROM payments WHERE user_id = ? AND status = 'completed' ORDER BY updated_at DESC LIMIT 1",
-    )
-    .bind(user_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(Into::into)
+        [user_id], fetch_optional)
+        .map_err(Into::into)
 }
 
 pub async fn list(pool: &DbPool, status_filter: Option<&str>) -> Result<Vec<Payment>> {
     match status_filter {
-        Some(status) => sqlx::query_as::<_, Payment>(
+        Some(status) => db_query_as!(pool, Payment,
             "SELECT * FROM payments WHERE status = ? ORDER BY created_at DESC",
-        )
-        .bind(status)
-        .fetch_all(pool)
-        .await
-        .map_err(Into::into),
-        None => sqlx::query_as::<_, Payment>(
+            [status], fetch_all)
+            .map_err(Into::into),
+        None => db_query_as!(pool, Payment,
             "SELECT * FROM payments ORDER BY created_at DESC",
-        )
-        .fetch_all(pool)
-        .await
-        .map_err(Into::into),
+            [], fetch_all)
+            .map_err(Into::into),
     }
 }
 
 pub async fn get_pending_for_user(pool: &DbPool, user_id: i64) -> Result<Option<Payment>> {
-    sqlx::query_as::<_, Payment>(
+    db_query_as!(pool, Payment,
         "SELECT * FROM payments WHERE user_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 1",
-    )
-    .bind(user_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(Into::into)
+        [user_id], fetch_optional)
+        .map_err(Into::into)
 }

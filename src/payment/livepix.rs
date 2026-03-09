@@ -8,6 +8,7 @@ use tokio::sync::RwLock;
 use crate::{
     config::AppConfig,
     db::{models::{Payment, User}, DbPool},
+    db_query_scalar,
     error::{AppError, Result},
 };
 
@@ -95,10 +96,7 @@ impl LivePixProvider {
     }
 
     async fn read_setting(&self, key: &str, env_fallback: Option<&str>) -> Result<String> {
-        let db_val = sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = ?")
-            .bind(key)
-            .fetch_optional(&self.pool)
-            .await?;
+        let db_val = db_query_scalar!(&self.pool, String, "SELECT value FROM settings WHERE key = ?", [key], fetch_optional)?;
 
         match db_val {
             Some(ref v) if !v.is_empty() => Ok(v.clone()),

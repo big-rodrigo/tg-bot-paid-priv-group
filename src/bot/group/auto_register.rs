@@ -5,7 +5,7 @@ use teloxide::{
     types::{ChatMemberStatus, ChatMemberUpdated},
 };
 
-use crate::{bot::state::HandlerResult, config::AppConfig, db::DbPool};
+use crate::{bot::state::HandlerResult, config::AppConfig, db::DbPool, db_execute};
 
 /// Handles `MyChatMember` updates — fired when the bot itself is added to or removed from a chat.
 /// When added by the configured admin, the group is automatically registered.
@@ -57,23 +57,14 @@ pub async fn handle(
         let telegram_id = update.chat.id.0;
         let title = update.chat.title().unwrap_or("Unknown Group");
 
-        sqlx::query(
-            "INSERT INTO groups (telegram_id, title, active)
+        db_execute!(&pool, "INSERT INTO groups (telegram_id, title, active)
              VALUES (?, ?, TRUE)
-             ON CONFLICT(telegram_id) DO UPDATE SET title = excluded.title, active = TRUE",
-        )
-        .bind(telegram_id)
-        .bind(title)
-        .execute(&pool)
-        .await?;
+             ON CONFLICT(telegram_id) DO UPDATE SET title = excluded.title, active = TRUE", [telegram_id, title])?;
 
         tracing::info!("Auto-registered group '{}' (telegram_id: {})", title, telegram_id);
     } else if left {
         let telegram_id = update.chat.id.0;
-        sqlx::query("UPDATE groups SET active = FALSE WHERE telegram_id = ?")
-            .bind(telegram_id)
-            .execute(&pool)
-            .await?;
+        db_execute!(&pool, "UPDATE groups SET active = FALSE WHERE telegram_id = ?", [telegram_id])?;
 
         tracing::info!(
             "Bot left/was removed from group (telegram_id: {}), marked inactive",

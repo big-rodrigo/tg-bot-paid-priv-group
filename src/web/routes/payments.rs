@@ -8,6 +8,7 @@ use serde::Deserialize;
 
 use crate::{
     db::queries,
+    db_execute,
     error::Result,
     payment::WebhookEvent,
     web::state::WebState,
@@ -78,20 +79,14 @@ pub async fn webhook(
         }
         WebhookEvent::Failed { external_ref, reason } => {
             tracing::warn!("Payment {external_ref} failed: {reason}");
-            sqlx::query(
+            db_execute!(&s.db,
                 "UPDATE payments SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE external_ref = ?",
-            )
-            .bind(&external_ref)
-            .execute(&s.db)
-            .await?;
+                [&external_ref])?;
         }
         WebhookEvent::Refunded { external_ref } => {
-            sqlx::query(
+            db_execute!(&s.db,
                 "UPDATE payments SET status = 'refunded', updated_at = CURRENT_TIMESTAMP WHERE external_ref = ?",
-            )
-            .bind(&external_ref)
-            .execute(&s.db)
-            .await?;
+                [&external_ref])?;
         }
         WebhookEvent::Unknown => {
             tracing::debug!("Received unknown webhook event — ignoring");

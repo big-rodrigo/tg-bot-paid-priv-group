@@ -6,6 +6,7 @@ use serde::Deserialize;
 
 use crate::{
     db::queries,
+    db_query_as,
     error::{AppError, Result},
     web::state::WebState,
 };
@@ -37,12 +38,9 @@ pub async fn get(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("user {id} not found")))?;
 
-    let reg = sqlx::query_as::<_, crate::db::models::UserRegistration>(
+    let reg = db_query_as!(&s.db, crate::db::models::UserRegistration,
         "SELECT * FROM user_registration WHERE user_id = ?",
-    )
-    .bind(id)
-    .fetch_optional(&s.db)
-    .await?;
+        [id], fetch_optional)?;
 
     Ok(Json(serde_json::json!({
         "user": user,

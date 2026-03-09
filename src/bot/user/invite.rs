@@ -7,6 +7,7 @@ use tokio::sync::RwLock;
 use crate::{
     bot::{group::invite_manager, state::HandlerResult},
     db::{models::Group, queries, DbPool},
+    db_query_as, db_query_scalar,
     error::Result,
     i18n::{self, Lang},
     payment::{PaymentProvider, WebhookEvent},
@@ -115,12 +116,7 @@ pub async fn deliver_invites(
                         continue;
                     }
 
-                    let group = sqlx::query_as::<_, Group>(
-                        "SELECT * FROM groups WHERE id = ? AND active = TRUE",
-                    )
-                    .bind(group_id)
-                    .fetch_optional(&pool)
-                    .await?;
+                    let group = db_query_as!(&pool, Group, "SELECT * FROM groups WHERE id = ? AND active = TRUE", [group_id], fetch_optional)?;
 
                     let Some(group) = group else { continue };
 
@@ -181,11 +177,7 @@ async fn deliver_all_groups(
 ) -> Result<()> {
     let chat_id = ChatId(user_telegram_id);
 
-    let groups = sqlx::query_as::<_, Group>(
-        "SELECT * FROM groups WHERE active = TRUE ORDER BY id ASC",
-    )
-    .fetch_all(&pool)
-    .await?;
+    let groups = db_query_as!(&pool, Group, "SELECT * FROM groups WHERE active = TRUE ORDER BY id ASC", [], fetch_all)?;
 
     if groups.is_empty() {
         bot.send_message(chat_id, i18n::no_groups_configured(l))
@@ -252,23 +244,14 @@ pub async fn refresh_invites(
     let chat_id = ChatId(user_telegram_id);
 
     // Find groups the user has been granted access to
-    let granted_group_ids: Vec<i64> = sqlx::query_scalar(
-        "SELECT DISTINCT group_id FROM invite_links WHERE user_id = ?",
-    )
-    .bind(user_id)
-    .fetch_all(&pool)
-    .await?;
+    let granted_group_ids: Vec<i64> = db_query_scalar!(&pool, i64, "SELECT DISTINCT group_id FROM invite_links WHERE user_id = ?", [user_id], fetch_all)?;
 
     // If no granted groups, check for legacy fallback
     let groups: Vec<Group> = if granted_group_ids.is_empty() {
         let invite_phases = queries::phases::list_active_invite(&pool).await?;
         if invite_phases.is_empty() {
             // Legacy: use all active groups
-            sqlx::query_as::<_, Group>(
-                "SELECT * FROM groups WHERE active = TRUE ORDER BY id ASC",
-            )
-            .fetch_all(&pool)
-            .await?
+            db_query_as!(&pool, Group, "SELECT * FROM groups WHERE active = TRUE ORDER BY id ASC", [], fetch_all)?
         } else {
             // Invite phases exist but user has no links — nothing to refresh
             bot.send_message(chat_id, i18n::no_links_available(l))
@@ -279,12 +262,7 @@ pub async fn refresh_invites(
         // Fetch only the groups the user was granted access to
         let mut result = Vec::new();
         for gid in &granted_group_ids {
-            if let Some(group) = sqlx::query_as::<_, Group>(
-                "SELECT * FROM groups WHERE id = ? AND active = TRUE",
-            )
-            .bind(gid)
-            .fetch_optional(&pool)
-            .await?
+            if let Some(group) = db_query_as!(&pool, Group, "SELECT * FROM groups WHERE id = ? AND active = TRUE", [gid], fetch_optional)?
             {
                 result.push(group);
             }
@@ -301,17 +279,11 @@ pub async fn refresh_invites(
     let mut sent_any = false;
 
     for group in &groups {
-        let existing = sqlx::query_scalar::<_, String>(
-            "SELECT invite_link FROM invite_links
+        let existing = db_query_scalar!(&pool, String, "SELECT invite_link FROM invite_links
              WHERE user_id = ? AND group_id = ?
                AND used_at IS NULL AND revoked_at IS NULL
              ORDER BY created_at DESC
-             LIMIT 1",
-        )
-        .bind(user_id)
-        .bind(group.id)
-        .fetch_optional(&pool)
-        .await?;
+             LIMIT 1", [user_id, group.id], fetch_optional)?;
 
         let link = if let Some(existing_link) = existing {
             existing_link

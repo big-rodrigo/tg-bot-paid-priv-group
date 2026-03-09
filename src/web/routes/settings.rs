@@ -7,24 +7,20 @@ use std::collections::HashMap;
 
 use crate::{
     db::models::Setting,
+    db_execute, db_query_as,
     error::{AppError, Result},
     i18n::Lang,
     web::state::WebState,
 };
 
 pub async fn list(State(s): State<WebState>) -> Result<Json<HashMap<String, String>>> {
-    let rows = sqlx::query_as::<_, Setting>("SELECT * FROM settings ORDER BY key ASC")
-        .fetch_all(&s.db)
-        .await?;
+    let rows = db_query_as!(&s.db, Setting, "SELECT * FROM settings ORDER BY key ASC", [], fetch_all)?;
     let map: HashMap<String, String> = rows.into_iter().map(|r| (r.key, r.value)).collect();
     Ok(Json(map))
 }
 
 pub async fn get(Path(key): Path<String>, State(s): State<WebState>) -> Result<Json<Setting>> {
-    let setting = sqlx::query_as::<_, Setting>("SELECT * FROM settings WHERE key = ?")
-        .bind(&key)
-        .fetch_optional(&s.db)
-        .await?
+    let setting = db_query_as!(&s.db, Setting, "SELECT * FROM settings WHERE key = ?", [&key], fetch_optional)?
         .ok_or_else(|| AppError::NotFound(format!("setting '{key}' not found")))?;
     Ok(Json(setting))
 }
@@ -39,14 +35,9 @@ pub async fn update(
     State(s): State<WebState>,
     Json(body): Json<UpdateBody>,
 ) -> Result<Json<Setting>> {
-    sqlx::query(
-        "INSERT INTO settings (key, value) VALUES (?, ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    )
-    .bind(&key)
-    .bind(&body.value)
-    .execute(&s.db)
-    .await?;
+    db_execute!(&s.db,
+        "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [&key, &body.value])?;
 
     // Sync in-memory language cache
     if key == "bot_language" {
@@ -54,10 +45,7 @@ pub async fn update(
         *guard = Lang::from_code(&body.value);
     }
 
-    let setting = sqlx::query_as::<_, Setting>("SELECT * FROM settings WHERE key = ?")
-        .bind(&key)
-        .fetch_one(&s.db)
-        .await?;
+    let setting = db_query_as!(&s.db, Setting, "SELECT * FROM settings WHERE key = ?", [&key], fetch_one)?;
     Ok(Json(setting))
 }
 

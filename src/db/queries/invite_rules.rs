@@ -3,64 +3,40 @@ use crate::{
         models::{Answer, InviteRule, InviteRuleCondition},
         DbPool,
     },
+    db_execute, db_query_as,
     error::Result,
 };
 
 pub async fn list_by_phase(pool: &DbPool, phase_id: i64) -> Result<Vec<InviteRule>> {
-    sqlx::query_as::<_, InviteRule>(
-        "SELECT * FROM invite_rules WHERE phase_id = ? ORDER BY position ASC",
-    )
-    .bind(phase_id)
-    .fetch_all(pool)
-    .await
-    .map_err(Into::into)
+    db_query_as!(pool, InviteRule, "SELECT * FROM invite_rules WHERE phase_id = ? ORDER BY position ASC", [phase_id], fetch_all)
+        .map_err(Into::into)
 }
 
 pub async fn get_by_id(pool: &DbPool, id: i64) -> Result<Option<InviteRule>> {
-    sqlx::query_as::<_, InviteRule>("SELECT * FROM invite_rules WHERE id = ?")
-        .bind(id)
-        .fetch_optional(pool)
-        .await
+    db_query_as!(pool, InviteRule, "SELECT * FROM invite_rules WHERE id = ?", [id], fetch_optional)
         .map_err(Into::into)
 }
 
 pub async fn create(pool: &DbPool, phase_id: i64, group_id: i64, position: i64) -> Result<i64> {
-    let row = sqlx::query(
-        "INSERT INTO invite_rules (phase_id, group_id, position) VALUES (?, ?, ?)",
-    )
-    .bind(phase_id)
-    .bind(group_id)
-    .bind(position)
-    .execute(pool)
-    .await?;
-    Ok(row.last_insert_rowid())
+    let (id,): (i64,) = db_query_as!(pool, (i64,),
+        "INSERT INTO invite_rules (phase_id, group_id, position) VALUES (?, ?, ?) RETURNING id",
+        [phase_id, group_id, position], fetch_one)?;
+    Ok(id)
 }
 
 pub async fn update(pool: &DbPool, id: i64, group_id: i64, position: i64) -> Result<()> {
-    sqlx::query("UPDATE invite_rules SET group_id = ?, position = ? WHERE id = ?")
-        .bind(group_id)
-        .bind(position)
-        .bind(id)
-        .execute(pool)
-        .await?;
+    db_execute!(pool, "UPDATE invite_rules SET group_id = ?, position = ? WHERE id = ?", [group_id, position, id])?;
     Ok(())
 }
 
 pub async fn delete(pool: &DbPool, id: i64) -> Result<()> {
-    sqlx::query("DELETE FROM invite_rules WHERE id = ?")
-        .bind(id)
-        .execute(pool)
-        .await?;
+    db_execute!(pool, "DELETE FROM invite_rules WHERE id = ?", [id])?;
     Ok(())
 }
 
 pub async fn reorder(pool: &DbPool, items: &[(i64, i64)]) -> Result<()> {
     for (id, position) in items {
-        sqlx::query("UPDATE invite_rules SET position = ? WHERE id = ?")
-            .bind(position)
-            .bind(id)
-            .execute(pool)
-            .await?;
+        db_execute!(pool, "UPDATE invite_rules SET position = ? WHERE id = ?", [position, id])?;
     }
     Ok(())
 }
@@ -69,13 +45,8 @@ pub async fn list_conditions(
     pool: &DbPool,
     invite_rule_id: i64,
 ) -> Result<Vec<InviteRuleCondition>> {
-    sqlx::query_as::<_, InviteRuleCondition>(
-        "SELECT * FROM invite_rule_conditions WHERE invite_rule_id = ? ORDER BY id ASC",
-    )
-    .bind(invite_rule_id)
-    .fetch_all(pool)
-    .await
-    .map_err(Into::into)
+    db_query_as!(pool, InviteRuleCondition, "SELECT * FROM invite_rule_conditions WHERE invite_rule_id = ? ORDER BY id ASC", [invite_rule_id], fetch_all)
+        .map_err(Into::into)
 }
 
 pub async fn create_condition(
@@ -86,25 +57,15 @@ pub async fn create_condition(
     option_id: Option<i64>,
     text_value: Option<&str>,
 ) -> Result<i64> {
-    let row = sqlx::query(
+    let (id,): (i64,) = db_query_as!(pool, (i64,),
         "INSERT INTO invite_rule_conditions (invite_rule_id, question_id, condition_type, option_id, text_value)
-         VALUES (?, ?, ?, ?, ?)",
-    )
-    .bind(invite_rule_id)
-    .bind(question_id)
-    .bind(condition_type)
-    .bind(option_id)
-    .bind(text_value)
-    .execute(pool)
-    .await?;
-    Ok(row.last_insert_rowid())
+         VALUES (?, ?, ?, ?, ?) RETURNING id",
+        [invite_rule_id, question_id, condition_type, option_id, text_value], fetch_one)?;
+    Ok(id)
 }
 
 pub async fn delete_condition(pool: &DbPool, id: i64) -> Result<()> {
-    sqlx::query("DELETE FROM invite_rule_conditions WHERE id = ?")
-        .bind(id)
-        .execute(pool)
-        .await?;
+    db_execute!(pool, "DELETE FROM invite_rule_conditions WHERE id = ?", [id])?;
     Ok(())
 }
 
@@ -119,13 +80,9 @@ pub async fn evaluate_rule(pool: &DbPool, invite_rule_id: i64, user_id: i64) -> 
     }
 
     for cond in &conditions {
-        let answer = sqlx::query_as::<_, Answer>(
+        let answer = db_query_as!(pool, Answer,
             "SELECT * FROM answers WHERE user_id = ? AND question_id = ?",
-        )
-        .bind(user_id)
-        .bind(cond.question_id)
-        .fetch_optional(pool)
-        .await?;
+            [user_id, cond.question_id], fetch_optional)?;
 
         let passed = match cond.condition_type.as_str() {
             "option_selected" => answer

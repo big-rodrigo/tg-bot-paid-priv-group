@@ -8,6 +8,7 @@ use tokio::sync::RwLock;
 use crate::{
     bot::state::{BotDialogue, HandlerResult, State},
     db::{models::Question, queries, DbPool},
+    db_execute,
     error::AppError,
     i18n::{self, Lang},
     payment::PaymentProvider,
@@ -231,14 +232,7 @@ pub async fn start_phase(
             all_phases_complete(bot, dialogue, pool, payment_provider, chat_id, user_id, l).await
         }
         Some(q) => {
-            sqlx::query(
-                "UPDATE user_registration SET current_phase_id = ?, current_question_id = ? WHERE user_id = ?",
-            )
-            .bind(phase_id)
-            .bind(q.id)
-            .bind(user_id)
-            .execute(pool)
-            .await?;
+            db_execute!(pool, "UPDATE user_registration SET current_phase_id = ?, current_question_id = ? WHERE user_id = ?", [phase_id, q.id, user_id])?;
 
             if q.question_type == "info" {
                 send_and_cache_file_id(
@@ -485,14 +479,7 @@ pub(crate) async fn advance(
         if let Some(next_q) =
             queries::questions::next_in_phase(pool, phase_id, after_pos).await?
         {
-            sqlx::query(
-                "UPDATE user_registration SET current_phase_id = ?, current_question_id = ? WHERE user_id = ?",
-            )
-            .bind(phase_id)
-            .bind(next_q.id)
-            .bind(user_id)
-            .execute(pool)
-            .await?;
+            db_execute!(pool, "UPDATE user_registration SET current_phase_id = ?, current_question_id = ? WHERE user_id = ?", [phase_id, next_q.id, user_id])?;
 
             if next_q.question_type == "info" {
                 send_and_cache_file_id(
@@ -557,12 +544,7 @@ async fn all_phases_complete(
     user_id: i64,
     l: Lang,
 ) -> HandlerResult {
-    sqlx::query(
-        "UPDATE user_registration SET completed_at = CURRENT_TIMESTAMP WHERE user_id = ?",
-    )
-    .bind(user_id)
-    .execute(pool)
-    .await?;
+    db_execute!(pool, "UPDATE user_registration SET completed_at = CURRENT_TIMESTAMP WHERE user_id = ?", [user_id])?;
 
     dialogue.update(State::AwaitingPayment).await?;
 

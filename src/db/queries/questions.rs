@@ -3,35 +3,23 @@ use crate::{
         models::{Question, QuestionOption},
         DbPool,
     },
+    db_execute, db_query_as,
     error::Result,
 };
 
 pub async fn list_by_phase(pool: &DbPool, phase_id: i64) -> Result<Vec<Question>> {
-    sqlx::query_as::<_, Question>(
-        "SELECT * FROM questions WHERE phase_id = ? ORDER BY position ASC",
-    )
-    .bind(phase_id)
-    .fetch_all(pool)
-    .await
-    .map_err(Into::into)
+    db_query_as!(pool, Question, "SELECT * FROM questions WHERE phase_id = ? ORDER BY position ASC", [phase_id], fetch_all)
+        .map_err(Into::into)
 }
 
 pub async fn get_by_id(pool: &DbPool, id: i64) -> Result<Option<Question>> {
-    sqlx::query_as::<_, Question>("SELECT * FROM questions WHERE id = ?")
-        .bind(id)
-        .fetch_optional(pool)
-        .await
+    db_query_as!(pool, Question, "SELECT * FROM questions WHERE id = ?", [id], fetch_optional)
         .map_err(Into::into)
 }
 
 pub async fn first_in_phase(pool: &DbPool, phase_id: i64) -> Result<Option<Question>> {
-    sqlx::query_as::<_, Question>(
-        "SELECT * FROM questions WHERE phase_id = ? ORDER BY position ASC LIMIT 1",
-    )
-    .bind(phase_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(Into::into)
+    db_query_as!(pool, Question, "SELECT * FROM questions WHERE phase_id = ? ORDER BY position ASC LIMIT 1", [phase_id], fetch_optional)
+        .map_err(Into::into)
 }
 
 pub async fn next_in_phase(
@@ -39,14 +27,8 @@ pub async fn next_in_phase(
     phase_id: i64,
     current_position: i64,
 ) -> Result<Option<Question>> {
-    sqlx::query_as::<_, Question>(
-        "SELECT * FROM questions WHERE phase_id = ? AND position > ? ORDER BY position ASC LIMIT 1",
-    )
-    .bind(phase_id)
-    .bind(current_position)
-    .fetch_optional(pool)
-    .await
-    .map_err(Into::into)
+    db_query_as!(pool, Question, "SELECT * FROM questions WHERE phase_id = ? AND position > ? ORDER BY position ASC LIMIT 1", [phase_id, current_position], fetch_optional)
+        .map_err(Into::into)
 }
 
 pub async fn create(
@@ -59,19 +41,10 @@ pub async fn create(
     media_path: Option<&str>,
     media_type: Option<&str>,
 ) -> Result<i64> {
-    let row = sqlx::query(
-        "INSERT INTO questions (phase_id, text, question_type, position, required, media_path, media_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(phase_id)
-    .bind(text)
-    .bind(question_type)
-    .bind(position)
-    .bind(required)
-    .bind(media_path)
-    .bind(media_type)
-    .execute(pool)
-    .await?;
-    Ok(row.last_insert_rowid())
+    let (id,): (i64,) = db_query_as!(pool, (i64,),
+        "INSERT INTO questions (phase_id, text, question_type, position, required, media_path, media_type) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        [phase_id, text, question_type, position, required, media_path, media_type], fetch_one)?;
+    Ok(id)
 }
 
 pub async fn update(
@@ -84,66 +57,38 @@ pub async fn update(
     media_path: Option<&str>,
     media_type: Option<&str>,
 ) -> Result<()> {
-    sqlx::query(
+    db_execute!(pool,
         "UPDATE questions SET text = ?, question_type = ?, position = ?, required = ?, media_path = ?, media_type = ?, media_file_id = NULL WHERE id = ?",
-    )
-    .bind(text)
-    .bind(question_type)
-    .bind(position)
-    .bind(required)
-    .bind(media_path)
-    .bind(media_type)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        [text, question_type, position, required, media_path, media_type, id])?;
     Ok(())
 }
 
 pub async fn delete(pool: &DbPool, id: i64) -> Result<()> {
-    sqlx::query("DELETE FROM questions WHERE id = ?")
-        .bind(id)
-        .execute(pool)
-        .await?;
+    db_execute!(pool, "DELETE FROM questions WHERE id = ?", [id])?;
     Ok(())
 }
 
 pub async fn reorder(pool: &DbPool, items: &[(i64, i64)]) -> Result<()> {
     for (id, position) in items {
-        sqlx::query("UPDATE questions SET position = ? WHERE id = ?")
-            .bind(position)
-            .bind(id)
-            .execute(pool)
-            .await?;
+        db_execute!(pool, "UPDATE questions SET position = ? WHERE id = ?", [position, id])?;
     }
     Ok(())
 }
 
 pub async fn update_media_file_id(pool: &DbPool, id: i64, file_id: &str) -> Result<()> {
-    sqlx::query("UPDATE questions SET media_file_id = ? WHERE id = ?")
-        .bind(file_id)
-        .bind(id)
-        .execute(pool)
-        .await?;
+    db_execute!(pool, "UPDATE questions SET media_file_id = ? WHERE id = ?", [file_id, id])?;
     Ok(())
 }
 
 // --- Options ---
 
 pub async fn list_options(pool: &DbPool, question_id: i64) -> Result<Vec<QuestionOption>> {
-    sqlx::query_as::<_, QuestionOption>(
-        "SELECT * FROM question_options WHERE question_id = ? ORDER BY position ASC",
-    )
-    .bind(question_id)
-    .fetch_all(pool)
-    .await
-    .map_err(Into::into)
+    db_query_as!(pool, QuestionOption, "SELECT * FROM question_options WHERE question_id = ? ORDER BY position ASC", [question_id], fetch_all)
+        .map_err(Into::into)
 }
 
 pub async fn get_option_by_id(pool: &DbPool, id: i64) -> Result<Option<QuestionOption>> {
-    sqlx::query_as::<_, QuestionOption>("SELECT * FROM question_options WHERE id = ?")
-        .bind(id)
-        .fetch_optional(pool)
-        .await
+    db_query_as!(pool, QuestionOption, "SELECT * FROM question_options WHERE id = ?", [id], fetch_optional)
         .map_err(Into::into)
 }
 
@@ -154,16 +99,10 @@ pub async fn create_option(
     value: &str,
     position: i64,
 ) -> Result<i64> {
-    let row = sqlx::query(
-        "INSERT INTO question_options (question_id, label, value, position) VALUES (?, ?, ?, ?)",
-    )
-    .bind(question_id)
-    .bind(label)
-    .bind(value)
-    .bind(position)
-    .execute(pool)
-    .await?;
-    Ok(row.last_insert_rowid())
+    let (id,): (i64,) = db_query_as!(pool, (i64,),
+        "INSERT INTO question_options (question_id, label, value, position) VALUES (?, ?, ?, ?) RETURNING id",
+        [question_id, label, value, position], fetch_one)?;
+    Ok(id)
 }
 
 pub async fn update_option(
@@ -173,20 +112,11 @@ pub async fn update_option(
     value: &str,
     position: i64,
 ) -> Result<()> {
-    sqlx::query("UPDATE question_options SET label = ?, value = ?, position = ? WHERE id = ?")
-        .bind(label)
-        .bind(value)
-        .bind(position)
-        .bind(id)
-        .execute(pool)
-        .await?;
+    db_execute!(pool, "UPDATE question_options SET label = ?, value = ?, position = ? WHERE id = ?", [label, value, position, id])?;
     Ok(())
 }
 
 pub async fn delete_option(pool: &DbPool, id: i64) -> Result<()> {
-    sqlx::query("DELETE FROM question_options WHERE id = ?")
-        .bind(id)
-        .execute(pool)
-        .await?;
+    db_execute!(pool, "DELETE FROM question_options WHERE id = ?", [id])?;
     Ok(())
 }

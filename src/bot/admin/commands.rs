@@ -5,7 +5,8 @@ use tokio::sync::RwLock;
 use crate::{
     bot::{commands::AdminCommand, state::HandlerResult},
     config::AppConfig,
-    db::{queries, DbPool},
+    db::{models::Group, queries, DbPool},
+    db_query_as,
     i18n::{self, Lang},
 };
 
@@ -45,12 +46,7 @@ pub async fn handle(
         }
 
         AdminCommand::Groups => {
-            use crate::db::models::Group;
-            let groups = sqlx::query_as::<_, Group>(
-                "SELECT * FROM groups ORDER BY id ASC",
-            )
-            .fetch_all(&pool)
-            .await?;
+            let groups = db_query_as!(&pool, Group, "SELECT * FROM groups ORDER BY id ASC", [], fetch_all)?;
             if groups.is_empty() {
                 bot.send_message(msg.chat.id, i18n::admin_no_groups(l))
                     .await?;

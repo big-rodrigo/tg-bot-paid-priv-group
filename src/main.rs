@@ -13,7 +13,6 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 
 use config::AppConfig;
 use db::DbPool;
-use sqlx::sqlite::SqliteConnectOptions;
 use payment::{
     external::ExternalPaymentProvider,
     livepix::LivePixProvider,
@@ -44,27 +43,52 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Web interface port: {}", config.web_interface_port);
 
     // Connect to the database and run migrations.
-    // create_if_missing(true) creates the SQLite file on first run.
-    let connect_options = SqliteConnectOptions::from_str(&config.database_url)
-        .expect("Invalid DATABASE_URL")
-        .create_if_missing(true);
+    // Backend is selected automatically from DATABASE_URL scheme.
+    let pool: DbPool = if config.database_url.starts_with("sqlite:") {
+        let connect_options = sqlx::sqlite::SqliteConnectOptions::from_str(&config.database_url)
+            .expect("Invalid DATABASE_URL")
+            .create_if_missing(true);
+        let p = sqlx::SqlitePool::connect_with(connect_options)
+            .await
+            .expect("Failed to connect to SQLite database");
+        sqlx::migrate!("./migrations/sqlite")
+            .run(&p)
+            .await
+            .expect("Failed to run SQLite migrations");
+        DbPool::Sqlite(p)
+    } else {
+        // Run migrations on a separate connection when DATABASE_MIGRATION_URL is set.
+        // This avoids PgBouncer's prepared-statement conflicts during migration.
+        let migration_url = config.database_migration_url.as_deref()
+            .unwrap_or(&config.database_url);
+        let migration_opts = sqlx::postgres::PgConnectOptions::from_str(migration_url)
+            .expect("Invalid DATABASE_MIGRATION_URL");
+        let migration_pool = sqlx::PgPool::connect_with(migration_opts)
+            .await
+            .expect("Failed to connect to database for migrations");
+        sqlx::migrate!("./migrations/postgres")
+            .run(&migration_pool)
+            .await
+            .expect("Failed to run PostgreSQL migrations");
+        migration_pool.close().await;
 
-    let pool: DbPool = sqlx::SqlitePool::connect_with(connect_options)
-        .await
-        .expect("Failed to connect to database");
-
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .expect("Failed to run database migrations");
+        // App pool: disable statement cache for PgBouncer compatibility.
+        let mut pg_opts = sqlx::postgres::PgConnectOptions::from_str(&config.database_url)
+            .expect("Invalid DATABASE_URL");
+        if config.database_url.contains("pgbouncer=true") {
+            pg_opts = pg_opts.statement_cache_capacity(0);
+        }
+        let p = sqlx::PgPool::connect_with(pg_opts)
+            .await
+            .expect("Failed to connect to PostgreSQL database");
+        DbPool::Postgres(p)
+    };
 
     tracing::info!("Database migrations applied");
 
     // Load language setting
     let lang_code: String =
-        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'bot_language'")
-            .fetch_optional(&pool)
-            .await?
+        db_query_scalar!(&pool, String, "SELECT value FROM settings WHERE key = 'bot_language'", [], fetch_optional)?
             .unwrap_or_else(|| "en".to_string());
     let lang = Arc::new(RwLock::new(i18n::Lang::from_code(&lang_code)));
     tracing::info!("Bot language: {}", lang_code);

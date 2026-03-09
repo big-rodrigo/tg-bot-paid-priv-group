@@ -26,6 +26,7 @@ cd frontend && npm install && npm run build
 | `ADMIN_TELEGRAM_USERNAME` | yes | — | Admin username without @ |
 | `WEB_INTERFACE_SECRET` | yes | — | Basic auth password for web UI |
 | `DATABASE_URL` | no | `sqlite:./data.db` | SQLite or Postgres URL |
+| `DATABASE_MIGRATION_URL` | no | — | Separate URL for migrations (use with PgBouncer) |
 | `PAYMENT_API_URL` | no | — | External payment API endpoint |
 | `PAYMENT_API_KEY` | no | — | Bearer token for external payment API |
 | `TELEGRAM_PAYMENT_PROVIDER_TOKEN` | no | — | Enables Telegram native payments |
@@ -44,7 +45,7 @@ main.rs
 ```
 
 Shared state is passed via `Arc<T>`:
-- `DbPool` (`sqlx::SqlitePool`) — database connection pool
+- `DbPool` (enum: `SqlitePool` or `PgPool`) — database connection pool
 - `Bot` — Telegram bot client (cheaply cloneable)
 - `Arc<AppConfig>` — parsed env vars
 - `Arc<dyn PaymentProvider + Send + Sync>` — selected payment provider
@@ -58,7 +59,7 @@ src/
 ├── error.rs              AppError enum + axum IntoResponse impl
 │
 ├── db/
-│   ├── mod.rs            DbPool type alias (SqlitePool)
+│   ├── mod.rs            DbPool enum (Sqlite | Postgres) + dispatch macros
 │   ├── models.rs         All sqlx::FromRow structs (User, Phase, Question, …)
 │   └── queries/          Async fns for each table (no query! macros)
 │       ├── users.rs
@@ -129,18 +130,19 @@ Storage: `InMemStorage<State>` — resets on restart. For persistence, implement
 
 ## Database
 
-- `DbPool = sqlx::SqlitePool` (defined in `src/db/mod.rs`)
+- `DbPool` is an enum (`Sqlite(SqlitePool)` / `Postgres(PgPool)`) defined in `src/db/mod.rs`
+- Backend selected automatically from `DATABASE_URL` env var — no code changes needed
+- Three dispatch macros (`db_query_as!`, `db_execute!`, `db_query_scalar!`) handle per-backend SQL placeholder rewriting
 - Runtime queries only — no `query!` macros, so no compile-time `DATABASE_URL` needed
-- Migrations run automatically at startup from `migrations/`
+- Migrations in `migrations/sqlite/` and `migrations/postgres/` — run automatically at startup based on detected backend
+- No `sqlx::AnyPool` — `NaiveDateTime` doesn't implement `Decode<'_, Any>` in sqlx 0.8
 
 **Tables:** `users`, `groups`, `phases`, `questions`, `question_options`, `answers`,
 `user_registration`, `payments`, `invite_links`
 
-**To switch to PostgreSQL / Supabase:**
-1. Change `pub type DbPool = sqlx::SqlitePool;` → `sqlx::PgPool` in `src/db/mod.rs`
-2. Change `sqlx::SqlitePool::connect(...)` → `sqlx::PgPool::connect(...)` in `src/main.rs`
-3. Update `DATABASE_URL` to `postgres://user:pass@host/db`
-4. In `Cargo.toml`: swap `"sqlite"` for `"postgres"` in sqlx features
+**To switch between SQLite and PostgreSQL:** just change `DATABASE_URL`:
+- SQLite: `DATABASE_URL=sqlite:./data.db`
+- PostgreSQL: `DATABASE_URL=postgres://user:pass@host/db`
 
 ## Web API
 

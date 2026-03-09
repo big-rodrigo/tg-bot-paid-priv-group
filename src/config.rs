@@ -37,6 +37,11 @@ pub struct AppConfig {
     /// LivePix currency code (fallback when DB setting is not configured)
     pub livepix_currency: Option<String>,
 
+    /// Separate database URL used only for running migrations.
+    /// Useful with PgBouncer (transaction mode): point this at a session-mode
+    /// or direct connection so migrations don't hit prepared-statement conflicts.
+    pub database_migration_url: Option<String>,
+
     /// Port the admin web interface listens on
     #[serde(default = "default_web_port")]
     pub web_interface_port: u16,

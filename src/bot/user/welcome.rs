@@ -5,6 +5,7 @@ use tokio::sync::RwLock;
 use crate::{
     bot::state::{BotDialogue, HandlerResult, State},
     db::{queries, DbPool},
+    db_query_as, db_execute,
     i18n::{self, Lang},
     payment::PaymentProvider,
 };
@@ -34,12 +35,7 @@ pub async fn handle_start(
     .await?;
 
     // Check existing registration
-    let reg = sqlx::query_as::<_, crate::db::models::UserRegistration>(
-        "SELECT * FROM user_registration WHERE user_id = ?",
-    )
-    .bind(user.id)
-    .fetch_optional(&pool)
-    .await?;
+    let reg = db_query_as!(&pool, crate::db::models::UserRegistration, "SELECT * FROM user_registration WHERE user_id = ?", [user.id], fetch_optional)?;
 
     if let Some(ref r) = reg {
         // Already fully registered
@@ -96,18 +92,12 @@ pub async fn handle_start(
     };
 
     // Insert / reset user_registration row
-    sqlx::query(
-        "INSERT INTO user_registration (user_id, current_phase_id, current_question_id)
+    db_execute!(&pool, "INSERT INTO user_registration (user_id, current_phase_id, current_question_id)
          VALUES (?, ?, NULL)
          ON CONFLICT(user_id) DO UPDATE SET
              current_phase_id = excluded.current_phase_id,
              current_question_id = NULL,
-             completed_at = NULL",
-    )
-    .bind(user.id)
-    .bind(first_phase.id)
-    .execute(&pool)
-    .await?;
+             completed_at = NULL", [user.id, first_phase.id])?;
 
     // Start from the first question of the first phase (handles leading info blocks)
     crate::bot::user::registration::start_phase(
@@ -141,12 +131,7 @@ pub async fn handle_status(
             bot.send_message(msg.chat.id, i18n::not_started(l)).await?;
         }
         Some(user) => {
-            let reg = sqlx::query_as::<_, crate::db::models::UserRegistration>(
-                "SELECT * FROM user_registration WHERE user_id = ?",
-            )
-            .bind(user.id)
-            .fetch_optional(&pool)
-            .await?;
+            let reg = db_query_as!(&pool, crate::db::models::UserRegistration, "SELECT * FROM user_registration WHERE user_id = ?", [user.id], fetch_optional)?;
 
             let status = match reg {
                 None => i18n::status_not_started(l),

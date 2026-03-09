@@ -3,6 +3,7 @@ use serde::Serialize;
 
 use crate::{
     db::{models::Answer, DbPool},
+    db_execute, db_query_as,
     error::Result,
 };
 
@@ -24,59 +25,39 @@ pub struct EnrichedAnswer {
 }
 
 pub async fn save_text(pool: &DbPool, user_id: i64, question_id: i64, text: &str) -> Result<()> {
-    sqlx::query(
+    db_execute!(pool,
         "INSERT INTO answers (user_id, question_id, text_value)
          VALUES (?, ?, ?)
          ON CONFLICT(user_id, question_id) DO UPDATE SET text_value = excluded.text_value",
-    )
-    .bind(user_id)
-    .bind(question_id)
-    .bind(text)
-    .execute(pool)
-    .await?;
+        [user_id, question_id, text])?;
     Ok(())
 }
 
 pub async fn save_option(pool: &DbPool, user_id: i64, question_id: i64, option_id: i64) -> Result<()> {
-    sqlx::query(
+    db_execute!(pool,
         "INSERT INTO answers (user_id, question_id, option_id)
          VALUES (?, ?, ?)
          ON CONFLICT(user_id, question_id) DO UPDATE SET option_id = excluded.option_id",
-    )
-    .bind(user_id)
-    .bind(question_id)
-    .bind(option_id)
-    .execute(pool)
-    .await?;
+        [user_id, question_id, option_id])?;
     Ok(())
 }
 
 pub async fn save_image(pool: &DbPool, user_id: i64, question_id: i64, file_id: &str) -> Result<()> {
-    sqlx::query(
+    db_execute!(pool,
         "INSERT INTO answers (user_id, question_id, image_file_id)
          VALUES (?, ?, ?)
          ON CONFLICT(user_id, question_id) DO UPDATE SET image_file_id = excluded.image_file_id",
-    )
-    .bind(user_id)
-    .bind(question_id)
-    .bind(file_id)
-    .execute(pool)
-    .await?;
+        [user_id, question_id, file_id])?;
     Ok(())
 }
 
 pub async fn list_by_user(pool: &DbPool, user_id: i64) -> Result<Vec<Answer>> {
-    sqlx::query_as::<_, Answer>(
-        "SELECT * FROM answers WHERE user_id = ? ORDER BY created_at ASC",
-    )
-    .bind(user_id)
-    .fetch_all(pool)
-    .await
-    .map_err(Into::into)
+    db_query_as!(pool, Answer, "SELECT * FROM answers WHERE user_id = ? ORDER BY created_at ASC", [user_id], fetch_all)
+        .map_err(Into::into)
 }
 
 pub async fn list_enriched_by_user(pool: &DbPool, user_id: i64) -> Result<Vec<EnrichedAnswer>> {
-    sqlx::query_as::<_, EnrichedAnswer>(
+    db_query_as!(pool, EnrichedAnswer,
         "SELECT
             a.id            AS answer_id,
             a.text_value,
@@ -97,9 +78,6 @@ pub async fn list_enriched_by_user(pool: &DbPool, user_id: i64) -> Result<Vec<En
         LEFT JOIN question_options qo ON qo.id = a.option_id
         WHERE a.user_id = ?
         ORDER BY p.position ASC, q.position ASC",
-    )
-    .bind(user_id)
-    .fetch_all(pool)
-    .await
-    .map_err(Into::into)
+        [user_id], fetch_all)
+        .map_err(Into::into)
 }
