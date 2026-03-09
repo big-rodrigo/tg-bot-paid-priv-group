@@ -9,6 +9,7 @@ use crate::{
     db::{models::Group, queries, DbPool},
     error::Result,
     i18n::{self, Lang},
+    payment::{PaymentProvider, WebhookEvent},
 };
 
 fn escape_html(s: &str) -> String {
@@ -359,11 +360,66 @@ pub async fn refresh_invites(
     Ok(())
 }
 
+/// Proactively checks the payment provider's API for a matching payment.
+/// If found, marks the payment completed and delivers invites.
+/// Returns `true` if a payment was found and processed.
+pub async fn try_proactive_payment_check(
+    bot: &Bot,
+    pool: &DbPool,
+    payment_provider: &Arc<dyn PaymentProvider + Send + Sync>,
+    user: &crate::db::models::User,
+    l: Lang,
+) -> Result<bool> {
+    let pending = queries::payments::get_pending_for_user(pool, user.id).await?;
+    let Some(pending) = pending else {
+        return Ok(false);
+    };
+
+    let event = match payment_provider.check_payment(&pending).await {
+        Ok(Some(ev)) => ev,
+        Ok(None) => return Ok(false),
+        Err(e) => {
+            tracing::warn!("Proactive payment check failed for user {}: {e}", user.id);
+            return Ok(false);
+        }
+    };
+
+    if let WebhookEvent::Completed {
+        external_ref,
+        payload,
+        amount,
+        currency,
+    } = event
+    {
+        let completed = queries::payments::complete_external(
+            pool,
+            &external_ref,
+            &payload,
+            amount,
+            currency.as_deref(),
+        )
+        .await?;
+
+        if completed.is_some() {
+            tracing::info!(
+                "Proactive payment check: completed payment for user {} (telegram_id={})",
+                user.id,
+                user.telegram_id
+            );
+            deliver_invites(bot.clone(), pool.clone(), user.id, user.telegram_id, l).await?;
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
 /// Handler for the /mylinks command.
 pub async fn handle_mylinks(
     bot: Bot,
     msg: Message,
     pool: DbPool,
+    payment_provider: Arc<dyn PaymentProvider + Send + Sync>,
     lang: Arc<RwLock<Lang>>,
 ) -> HandlerResult {
     let l = *lang.read().await;
@@ -381,6 +437,10 @@ pub async fn handle_mylinks(
 
     let payment = queries::payments::get_completed_for_user(&pool, user.id).await?;
     if payment.is_none() {
+        // Try proactive check before giving up
+        if try_proactive_payment_check(&bot, &pool, &payment_provider, &user, l).await? {
+            return Ok(());
+        }
         bot.send_message(msg.chat.id, i18n::no_payment(l))
             .await?;
         return Ok(());

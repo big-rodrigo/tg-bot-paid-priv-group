@@ -7,7 +7,7 @@ use tokio::sync::RwLock;
 
 use crate::{
     config::AppConfig,
-    db::{models::User, DbPool},
+    db::{models::{Payment, User}, DbPool},
     error::{AppError, Result},
 };
 
@@ -135,6 +135,7 @@ struct WebhookResource {
 
 #[derive(Deserialize)]
 struct MessageData {
+    username: Option<String>,
     text: Option<String>,
     amount: i64,
     currency: String,
@@ -145,16 +146,11 @@ struct MessageResponse {
     data: MessageData,
 }
 
-#[derive(Deserialize)]
-struct PaymentData {
-    reference: Option<String>,
-    amount: i64,
-    currency: String,
-}
+// ── List endpoint response shapes (for proactive payment checks) ─────────────
 
 #[derive(Deserialize)]
-struct PaymentResponse {
-    data: PaymentData,
+struct MessagesListResponse {
+    data: Vec<MessageData>,
 }
 
 // ── PaymentProvider impl ──────────────────────────────────────────────────────
@@ -171,7 +167,7 @@ impl PaymentProvider for LivePixProvider {
 
         let price_cents: i64 = price_cents_str.parse().unwrap_or(0);
 
-        // The identifier is what the user must type as the message on the LivePix page.
+        // The identifier is what the user must enter as their username on the LivePix page.
         let identifier = user
             .username
             .clone()
@@ -226,25 +222,15 @@ impl PaymentProvider for LivePixProvider {
                     .json::<MessageResponse>()
                     .await?;
 
-                let text = resp.data.text.unwrap_or_default();
-                // Strip leading '@' if present
-                let ident = text.trim_start_matches('@').trim().to_string();
-                (ident, resp.data.amount, resp.data.currency)
-            }
-            "payment" => {
-                let resp = self
-                    .client
-                    .get(format!("https://api.livepix.gg/v2/payments/{resource_id}"))
-                    .bearer_auth(&token)
-                    .send()
-                    .await?
-                    .error_for_status()
-                    .map_err(|e| AppError::Payment(format!("LivePix API error: {e}")))?
-                    .json::<PaymentResponse>()
-                    .await?;
-
-                let reference = resp.data.reference.unwrap_or_default();
-                let ident = reference.trim_start_matches('@').trim().to_string();
+                // Primary: username field; fallback: text (message) field
+                let ident = resp.data.username.as_deref()
+                    .map(|u| u.trim_start_matches('@').trim())
+                    .filter(|u| !u.is_empty())
+                    .or_else(|| resp.data.text.as_deref()
+                        .map(|t| t.trim_start_matches('@').trim())
+                        .filter(|t| !t.is_empty()))
+                    .unwrap_or_default()
+                    .to_string();
                 (ident, resp.data.amount, resp.data.currency)
             }
             other => {
@@ -293,5 +279,72 @@ impl PaymentProvider for LivePixProvider {
             .try_read()
             .ok()
             .and_then(|guard| guard.as_ref().map(|t| t.access_token.clone()))
+    }
+
+    async fn check_payment(&self, payment: &Payment) -> Result<Option<WebhookEvent>> {
+        let external_ref = match payment.external_ref.as_deref() {
+            Some(r) if !r.is_empty() => r,
+            _ => return Ok(None),
+        };
+
+        let token = match self.get_token().await {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!("Proactive check: failed to get LivePix token: {e}");
+                return Ok(None);
+            }
+        };
+
+        let price_cents: i64 = self
+            .read_setting(
+                "livepix_price_cents",
+                self.config.livepix_price_cents.as_deref(),
+            )
+            .await
+            .unwrap_or_else(|_| "0".to_string())
+            .parse()
+            .unwrap_or(0);
+
+        let needle = external_ref.trim_start_matches('@').to_lowercase();
+
+        // Check messages list — match on username first, fall back to text
+        match self
+            .client
+            .get("https://api.livepix.gg/v2/messages")
+            .bearer_auth(&token)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                if let Ok(list) = resp.json::<MessagesListResponse>().await {
+                    for msg in &list.data {
+                        let ident = msg.username.as_deref()
+                            .map(|u| u.trim_start_matches('@').trim().to_lowercase())
+                            .filter(|u| !u.is_empty())
+                            .or_else(|| msg.text.as_deref()
+                                .map(|t| t.trim_start_matches('@').trim().to_lowercase())
+                                .filter(|t| !t.is_empty()))
+                            .unwrap_or_default();
+                        if ident == needle && (price_cents == 0 || msg.amount >= price_cents) {
+                            tracing::info!(
+                                "Proactive check: found matching message for '{needle}' amount={}",
+                                msg.amount
+                            );
+                            return Ok(Some(WebhookEvent::Completed {
+                                external_ref: external_ref.to_string(),
+                                payload: format!("proactive_check:message:{needle}"),
+                                amount: Some(msg.amount),
+                                currency: Some(msg.currency.clone()),
+                            }));
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Proactive check: LivePix messages list failed: {e}");
+            }
+        }
+
+        Ok(None)
     }
 }

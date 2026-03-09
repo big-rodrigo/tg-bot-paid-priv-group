@@ -195,14 +195,14 @@ pub fn livepix_instructions(l: Lang, identifier: &str, currency: &str, price_dis
         Lang::En => format!(
             "To complete your payment:\n\
              1. Open the payment page: <a href=\"{url}\">{url}</a>\n\
-             2. In the <b>message</b> field, type exactly: <code>{identifier}</code>\n\
+             2. In the <b>username</b> field, type exactly: <code>{identifier}</code>\n\
              3. Pay at least <b>{currency} {price_display}</b>\n\n\
              Your access links will be sent automatically once the payment is confirmed."
         ),
         Lang::PtBr => format!(
             "Para concluir seu pagamento:\n\
              1. Abra a página de pagamento: <a href=\"{url}\">{url}</a>\n\
-             2. No campo <b>mensagem</b>, digite exatamente: <code>{identifier}</code>\n\
+             2. No campo <b>nome de usuário</b>, digite exatamente: <code>{identifier}</code>\n\
              3. Pague pelo menos <b>{currency} {price_display}</b>\n\n\
              Seus links de acesso serão enviados automaticamente após a confirmação do pagamento."
         ),

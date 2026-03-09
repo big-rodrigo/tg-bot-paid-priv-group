@@ -73,6 +73,15 @@ pub async fn handle_start(
             }
             // Question no longer exists (admin deleted it) — fall through to restart
         }
+
+        // Registration exists but not completed and can't resume a question.
+        // Check for pending payment before resetting registration.
+        if super::invite::try_proactive_payment_check(&bot, &pool, &payment_provider, &user, l)
+            .await?
+        {
+            dialogue.update(State::Registered).await?;
+            return Ok(());
+        }
     }
 
     // Fresh start: find first active phase

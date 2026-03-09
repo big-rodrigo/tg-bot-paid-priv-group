@@ -3,7 +3,10 @@ use axum::http::HeaderMap;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
-use crate::{db::models::User, error::Result};
+use crate::{
+    db::models::{Payment, User},
+    error::Result,
+};
 
 pub mod external;
 pub mod livepix;
@@ -54,6 +57,14 @@ pub trait PaymentProvider: Send + Sync {
     async fn verify_webhook(&self, headers: &HeaderMap, body: &Bytes) -> Result<WebhookEvent>;
 
     fn provider_name(&self) -> &'static str;
+
+    /// Proactively check the payment provider's API for a completed payment
+    /// matching the given pending payment record. Returns `Some(WebhookEvent::Completed{..})`
+    /// if a matching payment is found, `None` otherwise.
+    /// Default implementation returns `None` (provider does not support proactive checks).
+    async fn check_payment(&self, _payment: &Payment) -> Result<Option<WebhookEvent>> {
+        Ok(None)
+    }
 
     /// Returns the currently cached OAuth2 access token, if any.
     /// Default implementation returns `None` (for providers that don't cache tokens).
