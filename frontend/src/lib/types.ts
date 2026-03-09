@@ -4,7 +4,9 @@ export interface Phase {
   description: string | null;
   position: number;
   active: boolean;
-  phase_type: 'normal' | 'invite';
+  phase_type: 'normal' | 'invite' | 'payment';
+  rejection_text: string | null;
+  clean_chat: boolean;
 }
 
 export interface Question {
@@ -98,6 +100,15 @@ export interface AvailableQuestion {
   text: string;
   question_type: 'text' | 'button';
   options: QuestionOption[];
+}
+
+export interface PaymentGateCondition {
+  id: number;
+  phase_id: number;
+  question_id: number;
+  condition_type: 'option_selected' | 'option_not_selected' | 'text_contains' | 'text_not_contains';
+  option_id: number | null;
+  text_value: string | null;
 }
 
 export interface InviteLink {

@@ -1,6 +1,7 @@
 pub mod admin;
 pub mod groups;
 pub mod invite_rules;
+pub mod payment_gate;
 pub mod payments;
 pub mod phases;
 pub mod questions;

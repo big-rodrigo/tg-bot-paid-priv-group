@@ -51,6 +51,11 @@ pub async fn save_image(pool: &DbPool, user_id: i64, question_id: i64, file_id: 
     Ok(())
 }
 
+pub async fn delete_all_for_user(pool: &DbPool, user_id: i64) -> Result<()> {
+    db_execute!(pool, "DELETE FROM answers WHERE user_id = ?", [user_id])?;
+    Ok(())
+}
+
 pub async fn list_enriched_by_user(pool: &DbPool, user_id: i64) -> Result<Vec<EnrichedAnswer>> {
     db_query_as!(pool, EnrichedAnswer,
         "SELECT

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { phases, questions, options, inviteRules, groups as groupsApi, media } from '../lib/api';
-  import type { Phase, Question, QuestionOption, Group, InviteRule, InviteRuleCondition, AvailableQuestion } from '../lib/types';
+  import { phases, questions, options, inviteRules, groups as groupsApi, media, paymentGate } from '../lib/api';
+  import type { Phase, Question, QuestionOption, Group, InviteRule, InviteRuleCondition, AvailableQuestion, PaymentGateCondition } from '../lib/types';
   import TelegramEditor from '../lib/TelegramEditor.svelte';
   import { toTelegramHtml } from '../lib/telegramify';
   import { t } from '../lib/i18n.svelte';
@@ -17,7 +17,7 @@
   // Normal phase forms
   let newPhaseName = $state('');
   let newPhaseDesc = $state('');
-  let newPhaseType: 'normal' | 'invite' = $state('normal');
+  let newPhaseType: 'normal' | 'invite' | 'payment' = $state('normal');
   let newQText = $state('');
   let newQType: Question['question_type'] = $state('text');
   let newOptLabel = $state('');
@@ -33,6 +33,18 @@
   // Invite rule add form
   let showAddRuleForm = $state(false);
   let newRuleGroupId: number | null = $state(null);
+
+  // Payment gate state
+  let gateConditions: PaymentGateCondition[] = $state([]);
+  let gateRejectionText = $state('');
+  let gateCleanChat = $state(false);
+  let gateSaving = $state(false);
+  let gateSaveMsg = $state('');
+  let addingGateCondition = $state(false);
+  let gateCondQuestionId: number | null = $state(null);
+  let gateCondType = $state('');
+  let gateCondOptionId: number | null = $state(null);
+  let gateCondTextValue = $state('');
 
   // Condition add form
   let addingConditionForRule: number | null = $state(null);
@@ -161,10 +173,22 @@
         condMap[rule.id] = await inviteRules.listConditions(rule.id);
       }
       ruleConditions = condMap;
+      gateConditions = [];
+    } else if (phase.phase_type === 'payment') {
+      gateConditions = await paymentGate.listConditions(phase.id);
+      availableQuestions = await inviteRules.availableQuestions();
+      gateRejectionText = phase.rejection_text ?? '';
+      gateCleanChat = phase.clean_chat;
+      gateSaveMsg = '';
+      addingGateCondition = false;
+      phaseQuestions = [];
+      phaseInviteRules = [];
+      ruleConditions = {};
     } else {
       phaseQuestions = await questions.listByPhase(phase.id);
       phaseInviteRules = [];
       ruleConditions = {};
+      gateConditions = [];
       await refreshAllOptions(phaseQuestions);
     }
   }
@@ -246,9 +270,12 @@
     const swapIdx = idx + dir;
     if (swapIdx < 0 || swapIdx >= sortedPhases.length) return false;
     const other = sortedPhases[swapIdx];
-    // Prevent normal after invite
-    if (dir === 1 && phase.phase_type === 'normal' && other.phase_type === 'invite') return false;
-    if (dir === -1 && phase.phase_type === 'invite' && other.phase_type === 'normal') return false;
+    // Enforce ordering: normal → payment → invite
+    const typeOrder: Record<string, number> = { normal: 0, payment: 1, invite: 2 };
+    const phaseOrder = typeOrder[phase.phase_type] ?? 0;
+    const otherOrder = typeOrder[other.phase_type] ?? 0;
+    if (dir === 1 && phaseOrder > otherOrder) return false;
+    if (dir === -1 && phaseOrder < otherOrder) return false;
     return true;
   }
 
@@ -425,6 +452,62 @@
       [ruleId]: await inviteRules.listConditions(ruleId),
     };
   }
+
+  // ── Payment gate functions ──
+
+  let selectedGateCondQuestion = $derived(
+    availableQuestions.find(q => q.id === gateCondQuestionId) ?? null
+  );
+
+  async function saveGateSettings() {
+    if (!selectedPhase) return;
+    gateSaving = true;
+    gateSaveMsg = '';
+    try {
+      const rejText = toTelegramHtml(gateRejectionText);
+      await phases.update(selectedPhase.id, {
+        ...selectedPhase,
+        rejection_text: rejText || null,
+        clean_chat: gateCleanChat,
+      });
+      gateSaveMsg = t('phases.gateSettingsSaved');
+      await load();
+      // Re-select to refresh
+      const updated = allPhases.find(p => p.id === selectedPhase!.id);
+      if (updated) selectedPhase = updated;
+      setTimeout(() => { gateSaveMsg = ''; }, 2000);
+    } catch (e: any) {
+      error = e.message;
+    } finally {
+      gateSaving = false;
+    }
+  }
+
+  function startAddGateCondition() {
+    addingGateCondition = true;
+    gateCondQuestionId = null;
+    gateCondType = '';
+    gateCondOptionId = null;
+    gateCondTextValue = '';
+  }
+
+  async function saveGateCondition() {
+    if (!selectedPhase || !gateCondQuestionId || !gateCondType) return;
+    await paymentGate.createCondition(selectedPhase.id, {
+      question_id: gateCondQuestionId,
+      condition_type: gateCondType,
+      option_id: gateCondType.startsWith('option_') ? gateCondOptionId : null,
+      text_value: gateCondType.startsWith('text_') ? gateCondTextValue : null,
+    });
+    addingGateCondition = false;
+    gateConditions = await paymentGate.listConditions(selectedPhase.id);
+  }
+
+  async function deleteGateCondition(condId: number) {
+    if (!selectedPhase) return;
+    await paymentGate.deleteCondition(condId);
+    gateConditions = await paymentGate.listConditions(selectedPhase.id);
+  }
 </script>
 
 <div class="page-header">
@@ -462,6 +545,8 @@
                 </div>
                 {#if phase.phase_type === 'invite'}
                   <span class="badge badge-invite">{t('phases.menuInviteBadge')}</span>
+                {:else if phase.phase_type === 'payment'}
+                  <span class="badge badge-payment">{t('phases.menuPaymentBadge')}</span>
                 {:else if phase.active}
                   <span class="badge badge-active">{t('phases.menuActiveBadge')}</span>
                 {:else}
@@ -489,6 +574,7 @@
         <input bind:value={newPhaseDesc} placeholder={t('phases.descOptional')} />
         <select bind:value={newPhaseType} class="phase-type-select">
           <option value="normal">{t('phases.typeNormal')}</option>
+          <option value="payment">{t('phases.typePayment')}</option>
           <option value="invite">{t('phases.typeInvite')}</option>
         </select>
         <button type="submit" class="btn-primary full-width">{t('phases.addPhase')}</button>
@@ -719,6 +805,123 @@
           {/each}
         </div>
       {/if}
+
+    {:else if selectedPhase.phase_type === 'payment'}
+      <!-- ══════ PAYMENT GATE PHASE UI ══════ -->
+      <div class="questions-header">
+        <div class="questions-header-left">
+          <h2 class="questions-phase-name">{selectedPhase.name}</h2>
+          <span class="badge badge-payment">{t('phases.paymentBadge')}</span>
+        </div>
+      </div>
+
+      <div class="gate-settings-card">
+        <div class="form-field">
+          <span class="field-label">{t('phases.rejectionText')}</span>
+          <span class="hint">{t('phases.rejectionTextHint')}</span>
+          <TelegramEditor
+            content={gateRejectionText}
+            onchange={(html) => { gateRejectionText = html; }}
+            placeholder={t('phases.rejectionTextPlaceholder')}
+          />
+        </div>
+
+        <div class="gate-toggle-row">
+          <label class="toggle-label">
+            <input type="checkbox" bind:checked={gateCleanChat} />
+            <span>{t('phases.cleanChat')}</span>
+          </label>
+          <span class="hint">{t('phases.cleanChatHint')}</span>
+        </div>
+
+        <div class="gate-save-row">
+          <button class="btn-primary" onclick={saveGateSettings} disabled={gateSaving}>
+            {gateSaving ? t('common.saving') : t('phases.saveGateSettings')}
+          </button>
+          {#if gateSaveMsg}
+            <span class="save-success">{gateSaveMsg}</span>
+          {/if}
+        </div>
+      </div>
+
+      <div class="gate-conditions-card">
+        <div class="gate-conditions-header">
+          <span class="field-label">{t('phases.gateConditions')}</span>
+          <span class="hint">{t('phases.gateConditionsHint')}</span>
+        </div>
+
+        {#if gateConditions.length === 0 && !addingGateCondition}
+          <p class="rule-always">{t('phases.noGateConditions')}</p>
+        {:else}
+          <div class="conditions-list">
+            {#each gateConditions as cond (cond.id)}
+              <div class="condition-row">
+                <span class="cond-question">{getQuestionLabel(cond.question_id)}</span>
+                {#if cond.condition_type.startsWith('option_')}
+                  <span class="cond-operator">{conditionTypeLabel(cond.condition_type)}</span>
+                  <span class="cond-value">{cond.option_id ? getOptionLabel(cond.question_id, cond.option_id) : '?'}</span>
+                {:else}
+                  <span class="cond-operator">{conditionTypeLabel(cond.condition_type)}</span>
+                  <span class="cond-value">"{cond.text_value ?? ''}"</span>
+                {/if}
+                <button class="chip-delete" title={t('phases.removeCondition')} onclick={() => deleteGateCondition(cond.id)}>&#215;</button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+
+        {#if addingGateCondition}
+          <div class="add-condition-form">
+            <div class="cond-form-row">
+              <select bind:value={gateCondQuestionId} class="cond-select">
+                <option value={null} disabled selected>{t('phases.selectQuestion')}</option>
+                {#each availableQuestions as aq (aq.id)}
+                  <option value={aq.id}>[{aq.phase_name}] {stripHtml(aq.text).substring(0, 60)}</option>
+                {/each}
+              </select>
+            </div>
+
+            {#if selectedGateCondQuestion}
+              <div class="cond-form-row">
+                {#if selectedGateCondQuestion.question_type === 'button'}
+                  <select bind:value={gateCondType} class="cond-select">
+                    <option value="" disabled selected>{t('phases.conditionType')}</option>
+                    <option value="option_selected">{t('phases.optionSelected')}</option>
+                    <option value="option_not_selected">{t('phases.optionNotSelected')}</option>
+                  </select>
+                  {#if gateCondType}
+                    <select bind:value={gateCondOptionId} class="cond-select">
+                      <option value={null} disabled selected>{t('phases.selectOption')}</option>
+                      {#each selectedGateCondQuestion.options as opt (opt.id)}
+                        <option value={opt.id}>{opt.label}</option>
+                      {/each}
+                    </select>
+                  {/if}
+                {:else}
+                  <select bind:value={gateCondType} class="cond-select">
+                    <option value="" disabled selected>{t('phases.conditionType')}</option>
+                    <option value="text_contains">{t('phases.textContains')}</option>
+                    <option value="text_not_contains">{t('phases.textNotContains')}</option>
+                  </select>
+                  {#if gateCondType}
+                    <input bind:value={gateCondTextValue} placeholder={t('phases.searchText')} class="cond-input" />
+                  {/if}
+                {/if}
+              </div>
+            {/if}
+
+            <div class="cond-form-actions">
+              <button class="btn-sm" onclick={() => { addingGateCondition = false; }}>{t('common.cancel')}</button>
+              <button class="btn-sm btn-confirm" onclick={saveGateCondition}
+                disabled={!gateCondQuestionId || !gateCondType || (gateCondType.startsWith('option_') && !gateCondOptionId) || (gateCondType.startsWith('text_') && !gateCondTextValue.trim())}>
+                {t('phases.saveCondition')}
+              </button>
+            </div>
+          </div>
+        {:else}
+          <button class="btn-sm btn-add-cond" onclick={startAddGateCondition}>{t('phases.addCondition')}</button>
+        {/if}
+      </div>
 
     {:else}
       <!-- ══════ NORMAL PHASE UI ══════ -->
@@ -1063,6 +1266,7 @@
   }
   .badge-active  { background: #e3f5eb; color: #1a7a3e; }
   .badge-inactive { background: #f0f0f0; color: #999; }
+  .badge-payment { background: #fff3e0; color: #e67e22; }
   .badge-invite  { background: #eeeeff; color: #4444aa; }
 
   .phase-actions {
@@ -1669,5 +1873,63 @@
     color: #c0392b;
     font-size: 0.8rem;
     margin-top: 0.25rem;
+  }
+
+  /* ── Payment gate ── */
+  .gate-settings-card {
+    background: #ffffff;
+    border: 1px solid #e2e4e9;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .gate-toggle-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: #333;
+    cursor: pointer;
+  }
+  .toggle-label input[type="checkbox"] {
+    width: 1rem;
+    height: 1rem;
+    cursor: pointer;
+  }
+
+  .gate-save-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .save-success {
+    font-size: 0.82rem;
+    color: #27ae60;
+    font-weight: 500;
+  }
+
+  .gate-conditions-card {
+    background: #ffffff;
+    border: 1px solid #e2e4e9;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .gate-conditions-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
   }
 </style>

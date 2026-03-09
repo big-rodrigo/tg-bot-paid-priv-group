@@ -70,7 +70,8 @@ src/
 │       ├── questions.rs  Includes option CRUD
 │       ├── answers.rs
 │       ├── payments.rs
-│       └── invite_links.rs
+│       ├── invite_links.rs
+│       └── payment_gate.rs  Payment gate conditions + evaluate_gate()
 │
 ├── bot/
 │   ├── mod.rs            Dispatcher setup + dptree handler tree
@@ -107,7 +108,8 @@ src/
         ├── admin.rs      POST /api/admin/send-invites/{id}, /revoke-links/{id}
         ├── settings.rs   GET/PUT /api/settings/{key}, GET /api/debug/livepix-token
         ├── upload.rs     POST/DELETE /api/upload (media file management)
-        └── invite_rules.rs  Invite rules + conditions CRUD
+        ├── invite_rules.rs  Invite rules + conditions CRUD
+        └── payment_gate.rs  Payment gate conditions CRUD
 ```
 
 ## Bot dialogue state machine
@@ -161,7 +163,7 @@ LivePix is the sole payment provider. It uses OAuth2 client-credentials for API 
 - No `sqlx::AnyPool` — `NaiveDateTime` doesn't implement `Decode<'_, Any>` in sqlx 0.8
 
 **Tables:** `users`, `groups`, `phases`, `questions`, `question_options`, `answers`,
-`user_registration`, `payments`, `invite_links`, `invite_rules`, `invite_rule_conditions`, `settings`
+`user_registration`, `payments`, `invite_links`, `invite_rules`, `invite_rule_conditions`, `payment_gate_conditions`, `settings`
 
 **To switch between SQLite and PostgreSQL:** just change `DATABASE_URL`:
 - SQLite: `DATABASE_URL=sqlite:./data.db`
@@ -207,6 +209,9 @@ Invite Rules: GET/POST /api/phases/{id}/invite-rules
               GET/POST /api/invite-rules/{id}/conditions
               PUT/DEL  /api/invite-rule-conditions/{id}
               GET      /api/invite-rules/questions
+
+Payment Gate: GET/POST /api/phases/{phase_id}/gate-conditions
+              DEL      /api/gate-conditions/{id}
 ```
 
 The Svelte SPA is served from `static/` as a fallback. Build it with:

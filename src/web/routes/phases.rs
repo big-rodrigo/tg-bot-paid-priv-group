@@ -22,6 +22,8 @@ pub struct CreatePhase {
     pub description: Option<String>,
     pub position: Option<i64>,
     pub phase_type: Option<String>,
+    pub rejection_text: Option<String>,
+    pub clean_chat: Option<bool>,
 }
 
 pub async fn create(
@@ -31,8 +33,8 @@ pub async fn create(
     let position = body.position.unwrap_or(0);
     let phase_type = body.phase_type.as_deref().unwrap_or("normal");
 
-    if phase_type != "normal" && phase_type != "invite" {
-        return Err(AppError::Other("phase_type must be 'normal' or 'invite'".into()));
+    if phase_type != "normal" && phase_type != "invite" && phase_type != "payment" {
+        return Err(AppError::Other("phase_type must be 'normal', 'invite', or 'payment'".into()));
     }
 
     let id = queries::phases::create(
@@ -41,6 +43,8 @@ pub async fn create(
         body.description.as_deref(),
         position,
         phase_type,
+        body.rejection_text.as_deref(),
+        body.clean_chat.unwrap_or(false),
     )
     .await?;
 
@@ -59,6 +63,8 @@ pub struct UpdatePhase {
     pub position: i64,
     pub active: bool,
     pub phase_type: Option<String>,
+    pub rejection_text: Option<String>,
+    pub clean_chat: Option<bool>,
 }
 
 pub async fn update(
@@ -72,8 +78,8 @@ pub async fn update(
 
     let phase_type = body.phase_type.as_deref().unwrap_or(&existing.phase_type);
 
-    if phase_type != "normal" && phase_type != "invite" {
-        return Err(AppError::Other("phase_type must be 'normal' or 'invite'".into()));
+    if phase_type != "normal" && phase_type != "invite" && phase_type != "payment" {
+        return Err(AppError::Other("phase_type must be 'normal', 'invite', or 'payment'".into()));
     }
 
     queries::phases::update(
@@ -84,6 +90,8 @@ pub async fn update(
         body.position,
         body.active,
         phase_type,
+        body.rejection_text.as_deref(),
+        body.clean_chat.unwrap_or(existing.clean_chat),
     )
     .await?;
 
@@ -118,17 +126,46 @@ pub async fn reorder(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Validates that no active normal phase appears after any active invite phase.
+/// Validates phase ordering: normal → payment → invite.
+/// At most one active payment phase is allowed.
 async fn validate_phase_ordering(s: &WebState) -> Result<()> {
     let phases = queries::phases::list_active(&s.db).await?;
+    let mut seen_payment = false;
     let mut seen_invite = false;
+    let mut payment_count = 0;
+
     for p in &phases {
-        if p.phase_type == "invite" {
-            seen_invite = true;
-        } else if p.phase_type == "normal" && seen_invite {
-            return Err(AppError::Other(
-                "Normal phases cannot appear after invite phases. Move all invite phases to the end.".into(),
-            ));
+        match p.phase_type.as_str() {
+            "normal" => {
+                if seen_payment {
+                    return Err(AppError::Other(
+                        "Normal phases cannot appear after a payment gate phase.".into(),
+                    ));
+                }
+                if seen_invite {
+                    return Err(AppError::Other(
+                        "Normal phases cannot appear after invite phases.".into(),
+                    ));
+                }
+            }
+            "payment" => {
+                payment_count += 1;
+                if payment_count > 1 {
+                    return Err(AppError::Other(
+                        "Only one active payment gate phase is allowed.".into(),
+                    ));
+                }
+                if seen_invite {
+                    return Err(AppError::Other(
+                        "Payment gate phase cannot appear after invite phases.".into(),
+                    ));
+                }
+                seen_payment = true;
+            }
+            "invite" => {
+                seen_invite = true;
+            }
+            _ => {}
         }
     }
     Ok(())

@@ -28,6 +28,8 @@ pub struct Phase {
     pub position: i64,
     pub active: bool,
     pub phase_type: String,
+    pub rejection_text: Option<String>,
+    pub clean_chat: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -69,6 +71,7 @@ pub struct UserRegistration {
     pub current_phase_id: Option<i64>,
     pub current_question_id: Option<i64>,
     pub completed_at: Option<NaiveDateTime>,
+    pub first_message_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -99,6 +102,16 @@ pub struct InviteRule {
     pub phase_id: i64,
     pub group_id: i64,
     pub position: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct PaymentGateCondition {
+    pub id: i64,
+    pub phase_id: i64,
+    pub question_id: i64,
+    pub condition_type: String,
+    pub option_id: Option<i64>,
+    pub text_value: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

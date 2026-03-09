@@ -80,6 +80,15 @@ pub fn create_router(state: WebState) -> Router {
             "/api/invite-rule-conditions/{id}",
             delete(routes::invite_rules::delete_condition),
         )
+        // Payment gate conditions
+        .route(
+            "/api/phases/{phase_id}/gate-conditions",
+            get(routes::payment_gate::list).post(routes::payment_gate::create),
+        )
+        .route(
+            "/api/gate-conditions/{id}",
+            delete(routes::payment_gate::delete),
+        )
         // Groups
         .route(
             "/api/groups",

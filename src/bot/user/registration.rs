@@ -10,8 +10,8 @@ use crate::{
         state::{BotDialogue, HandlerResult, State},
         util::escape_html,
     },
-    db::{models::Question, queries, DbPool},
-    db_execute,
+    db::{models::{Phase, Question}, queries, DbPool},
+    db_execute, db_query_as,
     error::AppError,
     i18n::{self, Lang},
     payment::PaymentProvider,
@@ -404,9 +404,70 @@ async fn all_phases_complete(
     user_id: i64,
     l: Lang,
 ) -> HandlerResult {
+    // Check for payment gate phase
+    if let Some(gate) = queries::phases::get_active_payment(pool).await? {
+        let passed = queries::payment_gate::evaluate_gate(pool, gate.id, user_id).await?;
+        if !passed {
+            return handle_gate_rejection(bot, dialogue, pool, chat_id, user_id, &gate, l).await;
+        }
+    }
+
     db_execute!(pool, "UPDATE user_registration SET completed_at = CURRENT_TIMESTAMP WHERE user_id = ?", [user_id])?;
 
     dialogue.update(State::AwaitingPayment).await?;
 
     crate::bot::user::payment::send_payment_options(bot, chat_id, payment_provider, l).await
+}
+
+/// Handles rejection when the user fails payment gate conditions.
+/// Optionally cleans the chat, resets answers and registration, sends rejection text.
+async fn handle_gate_rejection(
+    bot: &Bot,
+    dialogue: &BotDialogue,
+    pool: &DbPool,
+    chat_id: ChatId,
+    user_id: i64,
+    gate: &Phase,
+    l: Lang,
+) -> HandlerResult {
+    let rejection_text = gate
+        .rejection_text
+        .as_deref()
+        .filter(|t| !t.is_empty())
+        .unwrap_or(i18n::gate_rejected(l));
+
+    if gate.clean_chat {
+        // Fetch first_message_id from registration
+        let reg = db_query_as!(pool, crate::db::models::UserRegistration,
+            "SELECT * FROM user_registration WHERE user_id = ?",
+            [user_id], fetch_optional)?;
+
+        // Send rejection text first to get its message_id as upper bound
+        let sent = bot.send_message(chat_id, rejection_text)
+            .parse_mode(ParseMode::Html)
+            .await?;
+        let upper_id = sent.id.0;
+
+        if let Some(reg) = reg {
+            if let Some(first_id) = reg.first_message_id {
+                // Delete all messages from first_message_id to upper_id - 1
+                for msg_id in first_id..upper_id as i64 {
+                    let _ = bot.delete_message(chat_id, teloxide::types::MessageId(msg_id as i32)).await;
+                }
+            }
+        }
+    } else {
+        bot.send_message(chat_id, rejection_text)
+            .parse_mode(ParseMode::Html)
+            .await?;
+    }
+
+    // Reset: delete answers and registration
+    queries::answers::delete_all_for_user(pool, user_id).await?;
+    db_execute!(pool, "DELETE FROM user_registration WHERE user_id = ?", [user_id])?;
+
+    // Set dialogue state back to Start
+    dialogue.update(State::Start).await?;
+
+    Ok(())
 }

@@ -126,6 +126,13 @@ pub fn pay_livepix(l: Lang) -> &'static str {
     }
 }
 
+pub fn gate_rejected(l: Lang) -> &'static str {
+    match l {
+        Lang::En => "Based on your answers, you are not eligible to proceed. Contact an admin for more information.",
+        Lang::PtBr => "Com base nas suas respostas, você não está elegível para prosseguir. Entre em contato com um administrador para mais informações.",
+    }
+}
+
 pub fn unknown_payment_option(l: Lang) -> &'static str {
     match l {
         Lang::En => "Unknown payment option.",

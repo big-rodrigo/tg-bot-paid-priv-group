@@ -108,6 +108,20 @@ export const inviteRules = {
     request<import('./types').AvailableQuestion[]>('GET', '/invite-rules/questions'),
 };
 
+// ── Payment Gate ─────────────────────────────────────────────────────
+export const paymentGate = {
+  listConditions: (phaseId: number) =>
+    request<import('./types').PaymentGateCondition[]>('GET', `/phases/${phaseId}/gate-conditions`),
+  createCondition: (phaseId: number, data: {
+    question_id: number;
+    condition_type: string;
+    option_id?: number | null;
+    text_value?: string | null;
+  }) =>
+    request<{ id: number }>('POST', `/phases/${phaseId}/gate-conditions`, data),
+  deleteCondition: (id: number) => request<void>('DELETE', `/gate-conditions/${id}`),
+};
+
 // ── Settings ──────────────────────────────────────────────────────────────
 export const settings = {
   list: () => request<Record<string, string>>('GET', '/settings'),

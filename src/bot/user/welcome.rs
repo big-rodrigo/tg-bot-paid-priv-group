@@ -92,12 +92,14 @@ pub async fn handle_start(
     };
 
     // Insert / reset user_registration row
-    db_execute!(&pool, "INSERT INTO user_registration (user_id, current_phase_id, current_question_id)
-         VALUES (?, ?, NULL)
+    let first_msg_id = msg.id.0 as i64;
+    db_execute!(&pool, "INSERT INTO user_registration (user_id, current_phase_id, current_question_id, first_message_id)
+         VALUES (?, ?, NULL, ?)
          ON CONFLICT(user_id) DO UPDATE SET
              current_phase_id = excluded.current_phase_id,
              current_question_id = NULL,
-             completed_at = NULL", [user.id, first_phase.id])?;
+             completed_at = NULL,
+             first_message_id = ?", [user.id, first_phase.id, first_msg_id, first_msg_id])?;
 
     // Start from the first question of the first phase (handles leading info blocks)
     crate::bot::user::registration::start_phase(
