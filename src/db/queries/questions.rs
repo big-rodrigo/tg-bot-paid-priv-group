@@ -56,15 +56,19 @@ pub async fn create(
     question_type: &str,
     position: i64,
     required: bool,
+    media_path: Option<&str>,
+    media_type: Option<&str>,
 ) -> Result<i64> {
     let row = sqlx::query(
-        "INSERT INTO questions (phase_id, text, question_type, position, required) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO questions (phase_id, text, question_type, position, required, media_path, media_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(phase_id)
     .bind(text)
     .bind(question_type)
     .bind(position)
     .bind(required)
+    .bind(media_path)
+    .bind(media_type)
     .execute(pool)
     .await?;
     Ok(row.last_insert_rowid())
@@ -77,14 +81,18 @@ pub async fn update(
     question_type: &str,
     position: i64,
     required: bool,
+    media_path: Option<&str>,
+    media_type: Option<&str>,
 ) -> Result<()> {
     sqlx::query(
-        "UPDATE questions SET text = ?, question_type = ?, position = ?, required = ? WHERE id = ?",
+        "UPDATE questions SET text = ?, question_type = ?, position = ?, required = ?, media_path = ?, media_type = ? WHERE id = ?",
     )
     .bind(text)
     .bind(question_type)
     .bind(position)
     .bind(required)
+    .bind(media_path)
+    .bind(media_type)
     .bind(id)
     .execute(pool)
     .await?;

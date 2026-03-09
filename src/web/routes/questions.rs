@@ -27,6 +27,8 @@ pub struct CreateQuestion {
     pub question_type: String,
     pub position: Option<i64>,
     pub required: Option<bool>,
+    pub media_path: Option<String>,
+    pub media_type: Option<String>,
 }
 
 pub async fn create(
@@ -53,6 +55,8 @@ pub async fn create(
         &body.question_type,
         position,
         required,
+        body.media_path.as_deref(),
+        body.media_type.as_deref(),
     )
     .await?;
     let question = queries::questions::get_by_id(&s.db, id)
@@ -67,6 +71,8 @@ pub struct UpdateQuestion {
     pub question_type: String,
     pub position: i64,
     pub required: bool,
+    pub media_path: Option<String>,
+    pub media_type: Option<String>,
 }
 
 pub async fn update(
@@ -74,6 +80,16 @@ pub async fn update(
     Path(id): Path<i64>,
     Json(body): Json<UpdateQuestion>,
 ) -> Result<Json<serde_json::Value>> {
+    // Clean up old media file if media is being changed or removed
+    if let Ok(Some(old_q)) = queries::questions::get_by_id(&s.db, id).await {
+        if let Some(old_path) = &old_q.media_path {
+            let new_path = body.media_path.as_deref();
+            if new_path != Some(old_path.as_str()) {
+                let _ = tokio::fs::remove_file(old_path).await;
+            }
+        }
+    }
+
     queries::questions::update(
         &s.db,
         id,
@@ -81,6 +97,8 @@ pub async fn update(
         &body.question_type,
         body.position,
         body.required,
+        body.media_path.as_deref(),
+        body.media_type.as_deref(),
     )
     .await?;
     let question = queries::questions::get_by_id(&s.db, id)
@@ -90,6 +108,12 @@ pub async fn update(
 }
 
 pub async fn delete(State(s): State<WebState>, Path(id): Path<i64>) -> Result<StatusCode> {
+    // Clean up media file if present
+    if let Ok(Some(q)) = queries::questions::get_by_id(&s.db, id).await {
+        if let Some(path) = &q.media_path {
+            let _ = tokio::fs::remove_file(path).await;
+        }
+    }
     queries::questions::delete(&s.db, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

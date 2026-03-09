@@ -122,6 +122,29 @@ export const payments = {
     request<import('./types').Payment[]>('GET', `/payments${status ? `?status=${status}` : ''}`),
 };
 
+// ── Media Upload ─────────────────────────────────────────────────────────
+export const media = {
+  upload: async (file: File): Promise<{ media_path: string; media_type: string }> => {
+    const secret = localStorage.getItem('adminSecret') ?? '';
+    const encoded = btoa(`admin:${secret}`);
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch(`${BASE}/upload`, {
+      method: 'POST',
+      headers: { Authorization: `Basic ${encoded}` },
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error ?? res.statusText);
+    }
+    return res.json();
+  },
+  delete: async (mediaPath: string): Promise<void> => {
+    await request<void>('DELETE', '/upload', { media_path: mediaPath });
+  },
+};
+
 // ── Debug ─────────────────────────────────────────────────────────────────
 export const debug = {
   livepixToken: () => request<{ token: string | null }>('GET', '/debug/livepix-token'),

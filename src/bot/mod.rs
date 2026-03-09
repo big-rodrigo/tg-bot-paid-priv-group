@@ -9,6 +9,7 @@ use teloxide::{
     dispatching::UpdateFilterExt,
     dptree,
     prelude::*,
+    utils::command::BotCommands,
 };
 use tokio::sync::RwLock;
 
@@ -19,7 +20,7 @@ use crate::{
     payment::PaymentProvider,
 };
 
-use commands::AdminCommand;
+use commands::{AdminCommand, UserCommand};
 use state::{BotStorage, HandlerResult, State};
 
 /// Build and run the Teloxide dispatcher. This function runs indefinitely.
@@ -31,6 +32,11 @@ pub async fn run_dispatcher(
     payment_provider: Arc<dyn PaymentProvider + Send + Sync>,
     lang: Arc<RwLock<Lang>>,
 ) {
+    // Register user-visible commands with Telegram so they appear in the "/" menu
+    if let Err(e) = bot.set_my_commands(UserCommand::bot_commands()).await {
+        tracing::warn!("Failed to set bot commands: {e}");
+    }
+
     Dispatcher::builder(bot.clone(), build_handler())
         .dependencies(dptree::deps![storage, pool, config, payment_provider, lang])
         .enable_ctrlc_handler()

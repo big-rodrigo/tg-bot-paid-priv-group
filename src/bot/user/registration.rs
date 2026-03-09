@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use teloxide::{
     prelude::*,
-    types::{ChatId, InlineKeyboardButton, InlineKeyboardMarkup, Message, ParseMode},
+    types::{ChatId, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Message, ParseMode},
 };
 use tokio::sync::RwLock;
 
@@ -17,6 +17,97 @@ fn escape_html(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
+/// Sends a message that may include a media attachment (image/video/animation).
+/// If media is present, uses the appropriate Telegram media method with caption.
+/// Falls back to a plain text message when no media is attached.
+/// Telegram caption limit is 1024 chars — if text exceeds that, media is sent
+/// without caption first, then text as a separate message.
+pub(crate) async fn send_media_or_text(
+    bot: &Bot,
+    chat_id: ChatId,
+    text: &str,
+    media_path: Option<&str>,
+    media_type: Option<&str>,
+    reply_markup: Option<InlineKeyboardMarkup>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    match (media_path, media_type) {
+        (Some(path), Some(mtype)) => {
+            let input_file = InputFile::file(std::path::Path::new(path));
+            let text_fits_caption = text.len() <= 1024;
+
+            match mtype {
+                "image" => {
+                    let mut req = bot.send_photo(chat_id, input_file);
+                    if text_fits_caption {
+                        req = req.caption(text).parse_mode(ParseMode::Html);
+                    }
+                    if text_fits_caption {
+                        if let Some(kb) = &reply_markup {
+                            req = req.reply_markup(kb.clone());
+                        }
+                    }
+                    req.await?;
+                }
+                "video" => {
+                    let mut req = bot.send_video(chat_id, input_file);
+                    if text_fits_caption {
+                        req = req.caption(text).parse_mode(ParseMode::Html);
+                    }
+                    if text_fits_caption {
+                        if let Some(kb) = &reply_markup {
+                            req = req.reply_markup(kb.clone());
+                        }
+                    }
+                    req.await?;
+                }
+                "animation" => {
+                    let mut req = bot.send_animation(chat_id, input_file);
+                    if text_fits_caption {
+                        req = req.caption(text).parse_mode(ParseMode::Html);
+                    }
+                    if text_fits_caption {
+                        if let Some(kb) = &reply_markup {
+                            req = req.reply_markup(kb.clone());
+                        }
+                    }
+                    req.await?;
+                }
+                _ => {
+                    // Unknown media type — send as document with caption
+                    let mut req = bot.send_document(chat_id, input_file);
+                    if text_fits_caption {
+                        req = req.caption(text).parse_mode(ParseMode::Html);
+                    }
+                    if text_fits_caption {
+                        if let Some(kb) = &reply_markup {
+                            req = req.reply_markup(kb.clone());
+                        }
+                    }
+                    req.await?;
+                }
+            }
+
+            // If text was too long for caption, send it as a separate message
+            if !text_fits_caption {
+                let mut msg_req = bot.send_message(chat_id, text).parse_mode(ParseMode::Html);
+                if let Some(kb) = reply_markup {
+                    msg_req = msg_req.reply_markup(kb);
+                }
+                msg_req.await?;
+            }
+        }
+        _ => {
+            // No media — plain text message
+            let mut req = bot.send_message(chat_id, text).parse_mode(ParseMode::Html);
+            if let Some(kb) = reply_markup {
+                req = req.reply_markup(kb);
+            }
+            req.await?;
+        }
+    }
+    Ok(())
+}
+
 /// Sends a question to the user, building the appropriate keyboard for button-type questions.
 pub async fn send_question(
     bot: &Bot,
@@ -25,12 +116,14 @@ pub async fn send_question(
     question: &Question,
     l: Lang,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let media_path = question.media_path.as_deref();
+    let media_type = question.media_type.as_deref();
+
     match question.question_type.as_str() {
         "button" => {
             let options = queries::questions::list_options(pool, question.id).await?;
             if options.is_empty() {
-                bot.send_message(chat_id, &question.text)
-                    .parse_mode(ParseMode::Html)
+                send_media_or_text(bot, chat_id, &question.text, media_path, media_type, None)
                     .await?;
                 return Ok(());
             }
@@ -44,21 +137,23 @@ pub async fn send_question(
                 })
                 .collect();
             let keyboard = InlineKeyboardMarkup::new(buttons);
-            bot.send_message(chat_id, &question.text)
-                .parse_mode(ParseMode::Html)
-                .reply_markup(keyboard)
-                .await?;
+            send_media_or_text(
+                bot,
+                chat_id,
+                &question.text,
+                media_path,
+                media_type,
+                Some(keyboard),
+            )
+            .await?;
         }
         "image" => {
             let text = format!("{}\n\n{}", question.text, i18n::photo_prompt(l));
-            bot.send_message(chat_id, text)
-                .parse_mode(ParseMode::Html)
-                .await?;
+            send_media_or_text(bot, chat_id, &text, media_path, media_type, None).await?;
         }
         _ => {
             // text, info, or unknown — just send the text
-            bot.send_message(chat_id, &question.text)
-                .parse_mode(ParseMode::Html)
+            send_media_or_text(bot, chat_id, &question.text, media_path, media_type, None)
                 .await?;
         }
     }
@@ -93,9 +188,15 @@ pub async fn start_phase(
             .await?;
 
             if q.question_type == "info" {
-                bot.send_message(chat_id, &q.text)
-                    .parse_mode(ParseMode::Html)
-                    .await?;
+                send_media_or_text(
+                    bot,
+                    chat_id,
+                    &q.text,
+                    q.media_path.as_deref(),
+                    q.media_type.as_deref(),
+                    None,
+                )
+                .await?;
                 advance(bot, dialogue, pool, payment_provider, chat_id, user_id, phase_id, &q, l)
                     .await
             } else {
@@ -303,9 +404,15 @@ pub(crate) async fn advance(
             .await?;
 
             if next_q.question_type == "info" {
-                bot.send_message(chat_id, &next_q.text)
-                    .parse_mode(ParseMode::Html)
-                    .await?;
+                send_media_or_text(
+                    bot,
+                    chat_id,
+                    &next_q.text,
+                    next_q.media_path.as_deref(),
+                    next_q.media_type.as_deref(),
+                    None,
+                )
+                .await?;
                 after_pos = next_q.position;
                 continue;
             }

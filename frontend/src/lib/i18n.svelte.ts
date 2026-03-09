@@ -133,6 +133,11 @@ const translations: Record<string, Record<Lang, string>> = {
   'phases.addCondition': { en: '+ Add Condition', 'pt-BR': '+ Adicionar Condição' },
   'phases.deleteRuleConfirm': { en: 'Delete this invite rule and its conditions?', 'pt-BR': 'Excluir esta regra de convite e suas condições?' },
   'phases.removeCondition': { en: 'Remove condition', 'pt-BR': 'Remover condição' },
+  'phases.attachMedia': { en: 'Attach image or video', 'pt-BR': 'Anexar imagem ou vídeo' },
+  'phases.removeMedia': { en: 'Remove', 'pt-BR': 'Remover' },
+  'phases.uploading': { en: 'Uploading...', 'pt-BR': 'Enviando...' },
+  'phases.maxFileSize': { en: 'Max 20MB — JPG, PNG, GIF, WebP, MP4, WebM', 'pt-BR': 'Máx 20MB — JPG, PNG, GIF, WebP, MP4, WebM' },
+  'phases.uploadError': { en: 'Upload failed', 'pt-BR': 'Falha no envio' },
 
   // ── Groups ──
   'groups.title': { en: 'Groups', 'pt-BR': 'Grupos' },

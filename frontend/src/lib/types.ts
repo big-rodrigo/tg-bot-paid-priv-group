@@ -14,6 +14,8 @@ export interface Question {
   question_type: 'button' | 'text' | 'image' | 'info';
   position: number;
   required: boolean;
+  media_path: string | null;
+  media_type: 'image' | 'video' | 'animation' | null;
 }
 
 export interface Setting {

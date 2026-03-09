@@ -45,7 +45,12 @@ pub async fn deliver_invites(
         let invite_rules = queries::invite_rules::list_by_phase(&pool, phase.id).await?;
 
         enum PhaseItem {
-            Info { text: String, position: i64 },
+            Info {
+                text: String,
+                position: i64,
+                media_path: Option<String>,
+                media_type: Option<String>,
+            },
             Rule { rule_id: i64, group_id: i64, position: i64 },
         }
 
@@ -55,6 +60,8 @@ pub async fn deliver_invites(
                 items.push(PhaseItem::Info {
                     text: q.text.clone(),
                     position: q.position,
+                    media_path: q.media_path.clone(),
+                    media_type: q.media_type.clone(),
                 });
             }
         }
@@ -72,10 +79,22 @@ pub async fn deliver_invites(
 
         for item in &items {
             match item {
-                PhaseItem::Info { text, .. } => {
-                    bot.send_message(chat_id, text)
-                        .parse_mode(teloxide::types::ParseMode::Html)
-                        .await?;
+                PhaseItem::Info {
+                    text,
+                    media_path,
+                    media_type,
+                    ..
+                } => {
+                    crate::bot::user::registration::send_media_or_text(
+                        &bot,
+                        chat_id,
+                        text,
+                        media_path.as_deref(),
+                        media_type.as_deref(),
+                        None,
+                    )
+                    .await
+                    .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
                 }
                 PhaseItem::Rule {
                     rule_id, group_id, ..

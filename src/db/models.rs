@@ -38,6 +38,8 @@ pub struct Question {
     pub question_type: String,
     pub position: i64,
     pub required: bool,
+    pub media_path: Option<String>,
+    pub media_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

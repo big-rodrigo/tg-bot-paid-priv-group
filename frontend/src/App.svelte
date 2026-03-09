@@ -21,19 +21,18 @@
   let path = $state(window.location.hash.replace(/^#/, '') || '/');
   let CurrentPage = $derived(routes[path] ?? Dashboard);
 
-  onMount(async () => {
+  onMount(() => {
     const onHashChange = () => {
       path = window.location.hash.replace(/^#/, '') || '/';
     };
     window.addEventListener('hashchange', onHashChange);
 
-    // Load language setting
-    try {
-      const langSetting = await settings.get('language');
+    // Load language setting (fire-and-forget)
+    settings.get('language').then((langSetting) => {
       setLang(langSetting.value as 'en' | 'pt-BR');
-    } catch {
+    }).catch(() => {
       // Default to English
-    }
+    });
 
     return () => window.removeEventListener('hashchange', onHashChange);
   });

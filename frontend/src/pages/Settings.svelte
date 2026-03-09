@@ -207,7 +207,6 @@
   }
   h2 { font-size: 1rem; border-bottom: 1px solid #ddd; padding-bottom: 0.5rem; margin: 0 0 0.75rem; }
   .hint { color: #666; font-size: 0.85rem; margin: 0 0 0.75rem; }
-  .hint code { background: #f0f0f0; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em; }
   .field { margin-bottom: 1rem; }
   .field label { display: block; font-size: 0.875rem; font-weight: 600; color: #333; margin-bottom: 0.3rem; }
   .field input, .field select {

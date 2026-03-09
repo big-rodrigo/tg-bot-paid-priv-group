@@ -21,6 +21,9 @@ pub enum AppError {
     #[error("Unauthorized")]
     Unauthorized,
 
+    #[error("Bad request: {0}")]
+    BadRequest(String),
+
     #[error("{0}")]
     Other(String),
 }
@@ -30,6 +33,7 @@ impl IntoResponse for AppError {
         let (status, message) = match &self {
             AppError::NotFound(m) => (StatusCode::NOT_FOUND, m.clone()),
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
+            AppError::BadRequest(m) => (StatusCode::BAD_REQUEST, m.clone()),
             _ => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
         };
         (status, Json(serde_json::json!({ "error": message }))).into_response()

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { phases, questions, options, inviteRules, groups as groupsApi } from '../lib/api';
+  import { phases, questions, options, inviteRules, groups as groupsApi, media } from '../lib/api';
   import type { Phase, Question, QuestionOption, Group, InviteRule, InviteRuleCondition, AvailableQuestion } from '../lib/types';
   import TelegramEditor from '../lib/TelegramEditor.svelte';
   import { toTelegramHtml } from '../lib/telegramify';
@@ -44,6 +44,50 @@
   // Info block form for invite phase
   let showAddInfoForm = $state(false);
   let newInfoText = $state('');
+
+  // Media attachment state (shared for normal questions and info blocks)
+  let newQMediaPath: string | null = $state(null);
+  let newQMediaType: string | null = $state(null);
+  let uploadingMedia = $state(false);
+  let mediaError = $state('');
+  // Info block media (invite phase)
+  let newInfoMediaPath: string | null = $state(null);
+  let newInfoMediaType: string | null = $state(null);
+  let uploadingInfoMedia = $state(false);
+  let infoMediaError = $state('');
+
+  async function handleMediaUpload(file: File, target: 'question' | 'info') {
+    const setUploading = target === 'question' ? (v: boolean) => uploadingMedia = v : (v: boolean) => uploadingInfoMedia = v;
+    const setError = target === 'question' ? (v: string) => mediaError = v : (v: string) => infoMediaError = v;
+    const setPath = target === 'question' ? (v: string | null) => newQMediaPath = v : (v: string | null) => newInfoMediaPath = v;
+    const setType = target === 'question' ? (v: string | null) => newQMediaType = v : (v: string | null) => newInfoMediaType = v;
+
+    setError('');
+    setUploading(true);
+    try {
+      const result = await media.upload(file);
+      setPath(result.media_path);
+      setType(result.media_type);
+    } catch (e: any) {
+      setError(e.message || t('phases.uploadError'));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function removeMedia(target: 'question' | 'info') {
+    const path = target === 'question' ? newQMediaPath : newInfoMediaPath;
+    if (path) {
+      try { await media.delete(path); } catch {}
+    }
+    if (target === 'question') { newQMediaPath = null; newQMediaType = null; }
+    else { newInfoMediaPath = null; newInfoMediaType = null; }
+  }
+
+  function resetMediaState(target: 'question' | 'info') {
+    if (target === 'question') { newQMediaPath = null; newQMediaType = null; mediaError = ''; }
+    else { newInfoMediaPath = null; newInfoMediaType = null; infoMediaError = ''; }
+  }
 
   async function load() {
     try {
@@ -134,8 +178,11 @@
       question_type: newQType,
       position: phaseQuestions.length,
       required: newQType !== 'info',
+      media_path: newQMediaPath,
+      media_type: newQMediaType as any,
     });
     newQText = '';
+    resetMediaState('question');
     showAddForm = false;
     phaseQuestions = await questions.listByPhase(selectedPhase.id);
     await refreshAllOptions(phaseQuestions);
@@ -330,8 +377,11 @@
       question_type: 'info',
       position: nextPos,
       required: false,
+      media_path: newInfoMediaPath,
+      media_type: newInfoMediaType as any,
     });
     newInfoText = '';
+    resetMediaState('info');
     showAddInfoForm = false;
     await selectPhase(selectedPhase);
   }
@@ -465,10 +515,10 @@
         </div>
         <div class="header-buttons">
           <button class="btn-primary" onclick={() => { showAddInfoForm = !showAddInfoForm; showAddRuleForm = false; }}>
-            {showAddInfoForm ? `&#10005; ${t('common.cancel')}` : t('phases.addInfoBlock')}
+            {showAddInfoForm ? `${t('common.cancel')}` : t('phases.addInfoBlock')}
           </button>
           <button class="btn-primary btn-invite" onclick={() => { showAddRuleForm = !showAddRuleForm; showAddInfoForm = false; }}>
-            {showAddRuleForm ? `&#10005; ${t('common.cancel')}` : t('phases.addInviteRule')}
+            {showAddRuleForm ? `${t('common.cancel')}` : t('phases.addInviteRule')}
           </button>
         </div>
       </div>
@@ -483,6 +533,34 @@
                 onchange={(html) => { newInfoText = html; }}
                 placeholder={t('phases.infoBlockPlaceholder')}
               />
+            </div>
+            <div class="media-upload-section">
+              {#if newInfoMediaPath}
+                <div class="media-preview">
+                  {#if newInfoMediaType === 'video'}
+                    <!-- svelte-ignore a11y_media_has_caption -->
+                    <video src="/{newInfoMediaPath}" controls class="media-thumb"></video>
+                  {:else}
+                    <img src="/{newInfoMediaPath}" alt="Attachment" class="media-thumb" />
+                  {/if}
+                  <button type="button" class="btn-sm danger" onclick={() => removeMedia('info')}>{t('phases.removeMedia')}</button>
+                </div>
+              {:else}
+                <label class="media-upload-label">
+                  {#if uploadingInfoMedia}
+                    <span class="hint">{t('phases.uploading')}</span>
+                  {:else}
+                    <span class="media-upload-text">{t('phases.attachMedia')}</span>
+                    <span class="hint">{t('phases.maxFileSize')}</span>
+                  {/if}
+                  <input type="file" accept="image/*,video/mp4,video/webm" class="media-file-input"
+                    disabled={uploadingInfoMedia}
+                    onchange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) handleMediaUpload(f, 'info'); (e.target as HTMLInputElement).value = ''; }} />
+                </label>
+                {#if infoMediaError}
+                  <span class="error-text">{infoMediaError}</span>
+                {/if}
+              {/if}
             </div>
             <div class="form-bottom-row">
               <span class="hint">{t('phases.infoBlockDeliveryHint')}</span>
@@ -532,6 +610,21 @@
                   </div>
                 </div>
                 <div class="qcard-text">{@html item.question.text}</div>
+                {#if item.question.media_path}
+                  <div class="qcard-media">
+                    {#if item.question.media_type === 'video'}
+                      <!-- svelte-ignore a11y_media_has_caption -->
+                      <video src="/{item.question.media_path}" controls class="qcard-media-thumb"></video>
+                    {:else}
+                      <img src="/{item.question.media_path}" alt="Attachment" class="qcard-media-thumb" />
+                    {/if}
+                    <button class="btn-sm danger" onclick={async () => {
+                      try { await media.delete(item.question.media_path!); } catch {}
+                      await questions.update(item.question.id, { ...item.question, media_path: null, media_type: null });
+                      if (selectedPhase) await selectPhase(selectedPhase);
+                    }}>{t('phases.removeMedia')}</button>
+                  </div>
+                {/if}
               </div>
             {:else}
               <!-- Invite rule card -->
@@ -634,8 +727,8 @@
           <h2 class="questions-phase-name">{selectedPhase.name}</h2>
           <span class="col-count">{phaseQuestions.length} {phaseQuestions.length === 1 ? t('phases.questions') : t('phases.questionsPlural')}</span>
         </div>
-        <button class="btn-primary" onclick={() => { showAddForm = !showAddForm; if (!showAddForm) { newQText = ''; newQType = 'text'; } }}>
-          {showAddForm ? `&#10005; ${t('common.cancel')}` : t('phases.addQuestion')}
+        <button class="btn-primary" onclick={() => { showAddForm = !showAddForm; if (!showAddForm) { newQText = ''; newQType = 'text'; resetMediaState('question'); } }}>
+          {showAddForm ? `${t('phases.cancelAdd')}` : t('phases.addQuestion')}
         </button>
       </div>
 
@@ -649,6 +742,34 @@
                 onchange={(html) => { newQText = html; }}
                 placeholder={newQType === 'info' ? t('phases.infoBlockPlaceholder') : ''}
               />
+            </div>
+            <div class="media-upload-section">
+              {#if newQMediaPath}
+                <div class="media-preview">
+                  {#if newQMediaType === 'video'}
+                    <!-- svelte-ignore a11y_media_has_caption -->
+                    <video src="/{newQMediaPath}" controls class="media-thumb"></video>
+                  {:else}
+                    <img src="/{newQMediaPath}" alt="Attachment" class="media-thumb" />
+                  {/if}
+                  <button type="button" class="btn-sm danger" onclick={() => removeMedia('question')}>{t('phases.removeMedia')}</button>
+                </div>
+              {:else}
+                <label class="media-upload-label">
+                  {#if uploadingMedia}
+                    <span class="hint">{t('phases.uploading')}</span>
+                  {:else}
+                    <span class="media-upload-text">{t('phases.attachMedia')}</span>
+                    <span class="hint">{t('phases.maxFileSize')}</span>
+                  {/if}
+                  <input type="file" accept="image/*,video/mp4,video/webm" class="media-file-input"
+                    disabled={uploadingMedia}
+                    onchange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) handleMediaUpload(f, 'question'); (e.target as HTMLInputElement).value = ''; }} />
+                </label>
+                {#if mediaError}
+                  <span class="error-text">{mediaError}</span>
+                {/if}
+              {/if}
             </div>
             <div class="form-bottom-row">
               <select bind:value={newQType}>
@@ -700,6 +821,22 @@
               </div>
 
               <div class="qcard-text">{@html q.text}</div>
+
+              {#if q.media_path}
+                <div class="qcard-media">
+                  {#if q.media_type === 'video'}
+                    <!-- svelte-ignore a11y_media_has_caption -->
+                    <video src="/{q.media_path}" controls class="qcard-media-thumb"></video>
+                  {:else}
+                    <img src="/{q.media_path}" alt="Attachment" class="qcard-media-thumb" />
+                  {/if}
+                  <button class="btn-sm danger" onclick={async () => {
+                    try { await media.delete(q.media_path!); } catch {}
+                    await questions.update(q.id, { ...q, media_path: null, media_type: null });
+                    if (selectedPhase) phaseQuestions = await questions.listByPhase(selectedPhase.id);
+                  }}>{t('phases.removeMedia')}</button>
+                </div>
+              {/if}
 
               {#if q.question_type === 'button'}
                 <div class="options-section">
@@ -1476,5 +1613,61 @@
   }
   .btn-icon.confirm:hover {
     background: #e3f5eb;
+  }
+
+  /* ── Media upload ── */
+  .media-upload-section {
+    margin: 0.5rem 0;
+  }
+  .media-upload-label {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px dashed #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    background: #f9f9f9;
+  }
+  .media-upload-label:hover {
+    border-color: #999;
+    background: #f0f4ff;
+  }
+  .media-upload-text {
+    font-size: 0.85rem;
+    color: #333;
+  }
+  .media-file-input {
+    display: none;
+  }
+  .media-preview {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+  .media-thumb {
+    max-width: 200px;
+    max-height: 140px;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+    object-fit: cover;
+  }
+  .qcard-media {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin: 0.5rem 0;
+  }
+  .qcard-media-thumb {
+    max-width: 120px;
+    max-height: 90px;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+    object-fit: cover;
+  }
+  .error-text {
+    color: #c0392b;
+    font-size: 0.8rem;
+    margin-top: 0.25rem;
   }
 </style>

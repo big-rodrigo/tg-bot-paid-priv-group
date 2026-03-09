@@ -3,6 +3,7 @@ pub mod routes;
 pub mod state;
 
 use axum::{
+    extract::DefaultBodyLimit,
     http::Method,
     middleware,
     routing::{delete, get, post, put},
@@ -126,7 +127,17 @@ pub fn create_router(state: WebState) -> Router {
             "/api/admin/telegram-image",
             get(routes::admin::telegram_image),
         )
+        // File upload
+        .route(
+            "/api/upload",
+            post(routes::upload::upload_file)
+                .delete(routes::upload::delete_file)
+                .layer(DefaultBodyLimit::max(20 * 1024 * 1024)),
+        )
         .layer(middleware::from_fn_with_state(state.clone(), auth::basic_auth));
+
+    // ── Uploaded media files (served before SPA fallback) ────────────────
+    let uploads = Router::new().nest_service("/uploads", ServeDir::new("uploads"));
 
     // ── SPA fallback — serves static/ (built Svelte app) ─────────────────
     let spa = Router::new().nest_service(
@@ -137,6 +148,7 @@ pub fn create_router(state: WebState) -> Router {
     Router::new()
         .merge(public)
         .merge(protected)
+        .merge(uploads)
         .fallback_service(spa)
         .with_state(state)
         .layer(cors)
