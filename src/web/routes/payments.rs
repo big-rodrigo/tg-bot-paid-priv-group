@@ -1,6 +1,6 @@
 use axum::{
     body::Bytes,
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     Json,
 };
@@ -9,7 +9,7 @@ use serde::Deserialize;
 use crate::{
     db::queries,
     db_execute,
-    error::Result,
+    error::{AppError, Result},
     payment::WebhookEvent,
     web::state::WebState,
 };
@@ -25,6 +25,31 @@ pub async fn list(
 ) -> Result<Json<serde_json::Value>> {
     let payments = queries::payments::list(&s.db, f.status.as_deref()).await?;
     Ok(Json(serde_json::json!(payments)))
+}
+
+/// Manually mark a pending payment as completed and deliver invite links.
+pub async fn complete(
+    State(s): State<WebState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode> {
+    let payment = queries::payments::complete_by_id(&s.db, id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("pending payment {id} not found")))?;
+
+    let user = queries::users::get_by_id(&s.db, payment.user_id).await?;
+    if let Some(user) = user {
+        let bot = s.bot.clone();
+        let pool = s.db.clone();
+        let lang = s.lang.clone();
+        tokio::spawn(async move {
+            let l = *lang.read().await;
+            if let Err(e) = crate::bot::user::invite::deliver_invites(bot, pool, user.id, user.telegram_id, l).await {
+                tracing::error!("Failed to deliver invites after manual complete: {e}");
+            }
+        });
+    }
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// External payment provider webhook handler.

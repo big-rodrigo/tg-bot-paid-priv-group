@@ -194,6 +194,7 @@ Users:        GET /api/users                        ?page=&limit=
               GET /api/users/{id}/invite_links
 
 Payments:     GET  /api/payments                    ?status=
+              POST /api/payments/{id}/complete       manually mark pending → completed + deliver invites
               POST /api/webhooks/payment             (no auth)
 
 Admin:        POST /api/admin/send-invites/{user_id}

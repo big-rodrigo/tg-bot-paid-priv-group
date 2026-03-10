@@ -70,3 +70,11 @@ pub async fn get_pending_for_user(pool: &DbPool, user_id: i64) -> Result<Option<
         [user_id], fetch_optional)
         .map_err(Into::into)
 }
+
+pub async fn complete_by_id(pool: &DbPool, id: i64) -> Result<Option<Payment>> {
+    db_execute!(pool,
+        "UPDATE payments SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'",
+        [id])?;
+    db_query_as!(pool, Payment, "SELECT * FROM payments WHERE id = ?", [id], fetch_optional)
+        .map_err(Into::into)
+}

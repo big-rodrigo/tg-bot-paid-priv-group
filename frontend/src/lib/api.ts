@@ -134,6 +134,7 @@ export const settings = {
 export const payments = {
   list: (status?: string) =>
     request<import('./types').Payment[]>('GET', `/payments${status ? `?status=${status}` : ''}`),
+  complete: (id: number) => request<void>('POST', `/payments/${id}/complete`),
 };
 
 // ── Media Upload ─────────────────────────────────────────────────────────

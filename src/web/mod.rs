@@ -108,6 +108,7 @@ pub fn create_router(state: WebState) -> Router {
         )
         // Payments
         .route("/api/payments", get(routes::payments::list))
+        .route("/api/payments/{id}/complete", post(routes::payments::complete))
         // Settings
         .route("/api/settings", get(routes::settings::list))
         .route(

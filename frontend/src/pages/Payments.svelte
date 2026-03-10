@@ -8,9 +8,12 @@
   let loading = true;
   let error = '';
   let filter = '';
+  let actionMsg = '';
+  let completing: number | null = null;
 
   async function load() {
     loading = true;
+    actionMsg = '';
     try {
       allPayments = await payments.list(filter || undefined);
     } catch (e: any) {
@@ -24,6 +27,21 @@
 
   function statusColor(status: Payment['status']) {
     return { pending: '#e67e22', completed: '#27ae60', failed: '#c0392b', refunded: '#7f8c8d' }[status];
+  }
+
+  async function markComplete(p: Payment) {
+    if (!confirm(t('payments.markCompleteConfirm'))) return;
+    completing = p.id;
+    error = '';
+    try {
+      await payments.complete(p.id);
+      actionMsg = t('payments.markCompleteSuccess');
+      await load();
+    } catch (e: any) {
+      error = e.message;
+    } finally {
+      completing = null;
+    }
   }
 </script>
 
@@ -43,6 +61,7 @@
   <button on:click={load}>{t('common.refresh')}</button>
 </div>
 
+{#if actionMsg}<p class="success">{actionMsg}</p>{/if}
 {#if error}<p class="error">{error}</p>{/if}
 
 {#if loading}
@@ -61,6 +80,7 @@
           <th>{t('payments.amount')}</th>
           <th>{t('payments.reference')}</th>
           <th>{t('payments.created')}</th>
+          <th>{t('payments.actions')}</th>
         </tr>
       </thead>
       <tbody>
@@ -73,6 +93,17 @@
             <td>{p.amount != null ? `${(p.amount / 100).toFixed(2)} ${p.currency ?? ''}` : '—'}</td>
             <td><code>{p.external_ref ?? '—'}</code></td>
             <td>{p.created_at}</td>
+            <td>
+              {#if p.status === 'pending'}
+                <button
+                  class="btn-complete"
+                  disabled={completing === p.id}
+                  on:click={() => markComplete(p)}
+                >
+                  {completing === p.id ? '…' : t('payments.markComplete')}
+                </button>
+              {/if}
+            </td>
           </tr>
         {/each}
       </tbody>
@@ -89,7 +120,10 @@
   th, td { padding: 0.7rem 1rem; text-align: left; border-bottom: 1px solid #eee; font-size: 0.9rem; white-space: nowrap; }
   th { background: #f9f9f9; font-weight: 600; }
   .badge { color: white; padding: 0.2rem 0.5rem; border-radius: 10px; font-size: 0.8rem; }
-  .error { color: red; }
+  .btn-complete { background: #27ae60; font-size: 0.8rem; padding: 0.25rem 0.6rem; }
+  .btn-complete:disabled { opacity: 0.6; cursor: default; }
+  .error { color: #c0392b; }
+  .success { color: #27ae60; }
 
   @media (max-width: 640px) {
     td, th { padding: 0.6rem 0.75rem; font-size: 0.82rem; }

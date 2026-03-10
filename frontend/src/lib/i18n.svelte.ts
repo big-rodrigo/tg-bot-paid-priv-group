@@ -219,6 +219,10 @@ const translations: Record<string, Record<Lang, string>> = {
   'payments.amount': { en: 'Amount', 'pt-BR': 'Valor' },
   'payments.reference': { en: 'Reference', 'pt-BR': 'Referência' },
   'payments.created': { en: 'Created', 'pt-BR': 'Criado em' },
+  'payments.actions': { en: 'Actions', 'pt-BR': 'Ações' },
+  'payments.markComplete': { en: 'Mark Complete', 'pt-BR': 'Marcar como Concluído' },
+  'payments.markCompleteConfirm': { en: 'Mark this payment as completed and deliver invite links?', 'pt-BR': 'Marcar este pagamento como concluído e entregar links de convite?' },
+  'payments.markCompleteSuccess': { en: 'Payment marked as completed. Invites will be delivered.', 'pt-BR': 'Pagamento marcado como concluído. Os convites serão entregues.' },
 
   // ── Settings ──
   'settings.title': { en: 'Settings', 'pt-BR': 'Configurações' },
