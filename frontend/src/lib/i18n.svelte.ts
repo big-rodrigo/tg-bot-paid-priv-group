@@ -27,6 +27,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'common.enable': { en: 'Enable', 'pt-BR': 'Ativar' },
   'common.disable': { en: 'Disable', 'pt-BR': 'Desativar' },
   'common.remove': { en: 'Remove', 'pt-BR': 'Remover' },
+  'common.edit': { en: 'Edit', 'pt-BR': 'Editar' },
   'common.refresh': { en: 'Refresh', 'pt-BR': 'Atualizar' },
   'common.actions': { en: 'Actions', 'pt-BR': 'Ações' },
 
@@ -151,6 +152,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'phases.uploading': { en: 'Uploading...', 'pt-BR': 'Enviando...' },
   'phases.maxFileSize': { en: 'Max 20MB — JPG, PNG, GIF, WebP, MP4, WebM', 'pt-BR': 'Máx 20MB — JPG, PNG, GIF, WebP, MP4, WebM' },
   'phases.uploadError': { en: 'Upload failed', 'pt-BR': 'Falha no envio' },
+  'phases.rename': { en: 'Rename phase', 'pt-BR': 'Renomear fase' },
 
   // ── Groups ──
   'groups.title': { en: 'Groups', 'pt-BR': 'Grupos' },

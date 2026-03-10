@@ -69,6 +69,18 @@
   let uploadingInfoMedia = $state(false);
   let infoMediaError = $state('');
 
+  // Phase name editing
+  let editingPhaseName = $state(false);
+  let editingPhaseNameValue = $state('');
+
+  // Question content editing
+  let editingQuestionId: number | null = $state(null);
+  let editingQuestionText = $state('');
+  let editingQuestionMediaPath: string | null = $state(null);
+  let editingQuestionMediaType: string | null = $state(null);
+  let editingMediaUploading = $state(false);
+  let editingMediaError = $state('');
+
   async function handleMediaUpload(file: File, target: 'question' | 'info') {
     const setUploading = target === 'question' ? (v: boolean) => uploadingMedia = v : (v: boolean) => uploadingInfoMedia = v;
     const setError = target === 'question' ? (v: string) => mediaError = v : (v: string) => infoMediaError = v;
@@ -161,6 +173,8 @@
     showAddInfoForm = false;
     selectedRuleId = null;
     addingConditionForRule = null;
+    editingPhaseName = false;
+    editingQuestionId = null;
 
     if (phase.phase_type === 'invite') {
       phaseQuestions = await questions.listByPhase(phase.id);
@@ -295,31 +309,68 @@
     if (selectedPhase) phaseQuestions = await questions.listByPhase(selectedPhase.id);
   }
 
-  let editingTypeId: number | null = $state(null);
-  let editingTypeValue: Question['question_type'] = $state('text');
-
-  function startEditType(q: Question, e: Event) {
-    e.stopPropagation();
-    editingTypeId = q.id;
-    editingTypeValue = q.question_type;
+  // Phase name editing
+  function startEditPhaseName() {
+    if (!selectedPhase) return;
+    editingPhaseNameValue = selectedPhase.name;
+    editingPhaseName = true;
   }
 
-  function cancelEditType(e: Event) {
-    e.stopPropagation();
-    editingTypeId = null;
-  }
-
-  async function saveQuestionType(q: Question, e: Event) {
-    e.stopPropagation();
-    await questions.update(q.id, { ...q, question_type: editingTypeValue });
-    editingTypeId = null;
-    if (selectedPhase) phaseQuestions = await questions.listByPhase(selectedPhase.id);
-    if (editingTypeValue === 'button') {
-      questionOptionsMap = { ...questionOptionsMap, [q.id]: await options.list(q.id) };
-    } else {
-      const { [q.id]: _, ...rest } = questionOptionsMap;
-      questionOptionsMap = rest;
+  async function savePhaseName() {
+    if (!selectedPhase || !editingPhaseNameValue.trim()) return;
+    try {
+      await phases.update(selectedPhase.id, { ...selectedPhase, name: editingPhaseNameValue.trim() });
+      editingPhaseName = false;
+      await load();
+      const updated = allPhases.find(p => p.id === selectedPhase!.id);
+      if (updated) selectedPhase = updated;
+    } catch (e: any) {
+      error = e.message;
     }
+  }
+
+  // Question content editing
+  function startEditQuestion(q: Question) {
+    editingQuestionId = q.id;
+    editingQuestionText = q.text;
+    editingQuestionMediaPath = q.media_path ?? null;
+    editingQuestionMediaType = q.media_type ?? null;
+    editingMediaError = '';
+  }
+
+  async function saveQuestionEdit(q: Question) {
+    const html = toTelegramHtml(editingQuestionText);
+    await questions.update(q.id, { ...q, text: html, media_path: editingQuestionMediaPath, media_type: editingQuestionMediaType as any });
+    editingQuestionId = null;
+    if (selectedPhase) {
+      if (selectedPhase.phase_type === 'invite') {
+        await selectPhase(selectedPhase);
+      } else {
+        phaseQuestions = await questions.listByPhase(selectedPhase.id);
+      }
+    }
+  }
+
+  async function handleEditMediaUpload(file: File) {
+    editingMediaError = '';
+    editingMediaUploading = true;
+    try {
+      const result = await media.upload(file);
+      editingQuestionMediaPath = result.media_path;
+      editingQuestionMediaType = result.media_type;
+    } catch (e: any) {
+      editingMediaError = e.message || t('phases.uploadError');
+    } finally {
+      editingMediaUploading = false;
+    }
+  }
+
+  async function removeEditMedia() {
+    if (editingQuestionMediaPath) {
+      try { await media.delete(editingQuestionMediaPath); } catch {}
+    }
+    editingQuestionMediaPath = null;
+    editingQuestionMediaType = null;
   }
 
   // ── Invite phase functions ──
@@ -599,9 +650,18 @@
       <!-- ══════ INVITE PHASE UI ══════ -->
       <div class="questions-header">
         <div class="questions-header-left">
-          <h2 class="questions-phase-name">{selectedPhase.name}</h2>
-          <span class="badge badge-invite">{t('phases.inviteBadge')}</span>
-          <span class="col-count">{invitePhaseItems.length} {invitePhaseItems.length === 1 ? t('phases.items') : t('phases.itemsPlural')}</span>
+          {#if editingPhaseName}
+            <form class="phase-name-form" onsubmit={(e) => { e.preventDefault(); savePhaseName(); }}>
+              <input class="phase-name-input" bind:value={editingPhaseNameValue} required />
+              <button type="submit" class="btn-sm btn-confirm">{t('common.save')}</button>
+              <button type="button" class="btn-sm" onclick={() => editingPhaseName = false}>{t('common.cancel')}</button>
+            </form>
+          {:else}
+            <h2 class="questions-phase-name">{selectedPhase.name}</h2>
+            <button class="btn-icon" title={t('phases.rename')} onclick={startEditPhaseName}>✎</button>
+            <span class="badge badge-invite">{t('phases.inviteBadge')}</span>
+            <span class="col-count">{invitePhaseItems.length} {invitePhaseItems.length === 1 ? t('phases.items') : t('phases.itemsPlural')}</span>
+          {/if}
         </div>
         <div class="header-buttons">
           <button class="btn-primary" onclick={() => { showAddInfoForm = !showAddInfoForm; showAddRuleForm = false; }}>
@@ -696,24 +756,68 @@
                   <span class="pos-badge">#{idx + 1}</span>
                   <span class="type-badge type-info">{t('phases.badgeInfo')}</span>
                   <div class="qcard-actions">
+                    {#if editingQuestionId !== item.question.id}
+                      <button class="btn-sm" onclick={() => startEditQuestion(item.question)}>{t('common.edit')}</button>
+                    {/if}
                     <button class="btn-sm danger" onclick={() => deleteQuestion(item.question.id)}>{t('common.delete')}</button>
                   </div>
                 </div>
-                <div class="qcard-text">{@html item.question.text}</div>
-                {#if item.question.media_path}
-                  <div class="qcard-media">
-                    {#if item.question.media_type === 'video'}
-                      <!-- svelte-ignore a11y_media_has_caption -->
-                      <video src="/{item.question.media_path}" controls class="qcard-media-thumb"></video>
-                    {:else}
-                      <img src="/{item.question.media_path}" alt="Attachment" class="qcard-media-thumb" />
-                    {/if}
-                    <button class="btn-sm danger" onclick={async () => {
-                      try { await media.delete(item.question.media_path!); } catch {}
-                      await questions.update(item.question.id, { ...item.question, media_path: null, media_type: null });
-                      if (selectedPhase) await selectPhase(selectedPhase);
-                    }}>{t('phases.removeMedia')}</button>
+                {#if editingQuestionId === item.question.id}
+                  <div class="qcard-edit">
+                    <TelegramEditor
+                      content={editingQuestionText}
+                      onchange={(html) => { editingQuestionText = html; }}
+                    />
+                    <div class="media-upload-section">
+                      {#if editingQuestionMediaPath}
+                        <div class="media-preview">
+                          {#if editingQuestionMediaType === 'video'}
+                            <!-- svelte-ignore a11y_media_has_caption -->
+                            <video src="/{editingQuestionMediaPath}" controls class="media-thumb"></video>
+                          {:else}
+                            <img src="/{editingQuestionMediaPath}" alt="Attachment" class="media-thumb" />
+                          {/if}
+                          <button type="button" class="btn-sm danger" onclick={removeEditMedia}>{t('phases.removeMedia')}</button>
+                        </div>
+                      {:else}
+                        <label class="media-upload-label">
+                          {#if editingMediaUploading}
+                            <span class="hint">{t('phases.uploading')}</span>
+                          {:else}
+                            <span class="media-upload-text">{t('phases.attachMedia')}</span>
+                            <span class="hint">{t('phases.maxFileSize')}</span>
+                          {/if}
+                          <input type="file" accept="image/*,video/mp4,video/webm" class="media-file-input"
+                            disabled={editingMediaUploading}
+                            onchange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) handleEditMediaUpload(f); (e.target as HTMLInputElement).value = ''; }} />
+                        </label>
+                        {#if editingMediaError}
+                          <span class="error-text">{editingMediaError}</span>
+                        {/if}
+                      {/if}
+                    </div>
+                    <div class="edit-actions">
+                      <button class="btn-sm" onclick={() => editingQuestionId = null}>{t('common.cancel')}</button>
+                      <button class="btn-sm btn-confirm" onclick={() => saveQuestionEdit(item.question)}>{t('common.save')}</button>
+                    </div>
                   </div>
+                {:else}
+                  <div class="qcard-text">{@html item.question.text}</div>
+                  {#if item.question.media_path}
+                    <div class="qcard-media">
+                      {#if item.question.media_type === 'video'}
+                        <!-- svelte-ignore a11y_media_has_caption -->
+                        <video src="/{item.question.media_path}" controls class="qcard-media-thumb"></video>
+                      {:else}
+                        <img src="/{item.question.media_path}" alt="Attachment" class="qcard-media-thumb" />
+                      {/if}
+                      <button class="btn-sm danger" onclick={async () => {
+                        try { await media.delete(item.question.media_path!); } catch {}
+                        await questions.update(item.question.id, { ...item.question, media_path: null, media_type: null });
+                        if (selectedPhase) await selectPhase(selectedPhase);
+                      }}>{t('phases.removeMedia')}</button>
+                    </div>
+                  {/if}
                 {/if}
               </div>
             {:else}
@@ -814,8 +918,17 @@
       <!-- ══════ PAYMENT GATE PHASE UI ══════ -->
       <div class="questions-header">
         <div class="questions-header-left">
-          <h2 class="questions-phase-name">{selectedPhase.name}</h2>
-          <span class="badge badge-payment">{t('phases.paymentBadge')}</span>
+          {#if editingPhaseName}
+            <form class="phase-name-form" onsubmit={(e) => { e.preventDefault(); savePhaseName(); }}>
+              <input class="phase-name-input" bind:value={editingPhaseNameValue} required />
+              <button type="submit" class="btn-sm btn-confirm">{t('common.save')}</button>
+              <button type="button" class="btn-sm" onclick={() => editingPhaseName = false}>{t('common.cancel')}</button>
+            </form>
+          {:else}
+            <h2 class="questions-phase-name">{selectedPhase.name}</h2>
+            <button class="btn-icon" title={t('phases.rename')} onclick={startEditPhaseName}>✎</button>
+            <span class="badge badge-payment">{t('phases.paymentBadge')}</span>
+          {/if}
         </div>
       </div>
 
@@ -931,8 +1044,17 @@
       <!-- ══════ NORMAL PHASE UI ══════ -->
       <div class="questions-header">
         <div class="questions-header-left">
-          <h2 class="questions-phase-name">{selectedPhase.name}</h2>
-          <span class="col-count">{phaseQuestions.length} {phaseQuestions.length === 1 ? t('phases.questions') : t('phases.questionsPlural')}</span>
+          {#if editingPhaseName}
+            <form class="phase-name-form" onsubmit={(e) => { e.preventDefault(); savePhaseName(); }}>
+              <input class="phase-name-input" bind:value={editingPhaseNameValue} required />
+              <button type="submit" class="btn-sm btn-confirm">{t('common.save')}</button>
+              <button type="button" class="btn-sm" onclick={() => editingPhaseName = false}>{t('common.cancel')}</button>
+            </form>
+          {:else}
+            <h2 class="questions-phase-name">{selectedPhase.name}</h2>
+            <button class="btn-icon" title={t('phases.rename')} onclick={startEditPhaseName}>✎</button>
+            <span class="col-count">{phaseQuestions.length} {phaseQuestions.length === 1 ? t('phases.questions') : t('phases.questionsPlural')}</span>
+          {/if}
         </div>
         <button class="btn-primary" onclick={() => { showAddForm = !showAddForm; if (!showAddForm) { newQText = ''; newQType = 'text'; resetMediaState('question'); } }}>
           {showAddForm ? `${t('phases.cancelAdd')}` : t('phases.addQuestion')}
@@ -1003,46 +1125,73 @@
 
               <div class="qcard-header">
                 <span class="pos-badge">#{idx + 1}</span>
-
-                {#if editingTypeId === q.id}
-                  <select class="type-select" bind:value={editingTypeValue} onclick={(e) => e.stopPropagation()}>
-                    <option value="text">{t('phases.badgeText')}</option>
-                    <option value="button">{t('phases.badgeButton')}</option>
-                    <option value="image">{t('phases.badgeImage')}</option>
-                    <option value="info">{t('phases.badgeInfo')}</option>
-                  </select>
-                  <button class="btn-icon confirm" title="Save type" onclick={(e) => saveQuestionType(q, e)}>&#10003;</button>
-                  <button class="btn-icon" title="Cancel" onclick={cancelEditType}>&#10005;</button>
-                {:else}
-                  <button class="type-badge type-{q.question_type}" title={t('phases.clickToChangeType')}
-                    onclick={(e) => startEditType(q, e)}>
-                    {typeLabel(q.question_type)}
-                  </button>
-                {/if}
-
+                <span class="type-badge type-{q.question_type}">{typeLabel(q.question_type)}</span>
                 <div class="qcard-actions">
-                  <button class="btn-icon" title="Move up" disabled={idx === 0} onclick={() => moveQuestion(q, -1)}>&#8593;</button>
-                  <button class="btn-icon" title="Move down" disabled={idx === sortedQuestions.length - 1} onclick={() => moveQuestion(q, 1)}>&#8595;</button>
+                  <button class="btn-icon" title={t('phases.moveUp')} disabled={idx === 0} onclick={() => moveQuestion(q, -1)}>&#8593;</button>
+                  <button class="btn-icon" title={t('phases.moveDown')} disabled={idx === sortedQuestions.length - 1} onclick={() => moveQuestion(q, 1)}>&#8595;</button>
+                  {#if editingQuestionId !== q.id}
+                    <button class="btn-sm" onclick={() => startEditQuestion(q)}>{t('common.edit')}</button>
+                  {/if}
                   <button class="btn-sm danger" onclick={() => deleteQuestion(q.id)}>{t('common.delete')}</button>
                 </div>
               </div>
 
-              <div class="qcard-text">{@html q.text}</div>
-
-              {#if q.media_path}
-                <div class="qcard-media">
-                  {#if q.media_type === 'video'}
-                    <!-- svelte-ignore a11y_media_has_caption -->
-                    <video src="/{q.media_path}" controls class="qcard-media-thumb"></video>
-                  {:else}
-                    <img src="/{q.media_path}" alt="Attachment" class="qcard-media-thumb" />
-                  {/if}
-                  <button class="btn-sm danger" onclick={async () => {
-                    try { await media.delete(q.media_path!); } catch {}
-                    await questions.update(q.id, { ...q, media_path: null, media_type: null });
-                    if (selectedPhase) phaseQuestions = await questions.listByPhase(selectedPhase.id);
-                  }}>{t('phases.removeMedia')}</button>
+              {#if editingQuestionId === q.id}
+                <div class="qcard-edit">
+                  <TelegramEditor
+                    content={editingQuestionText}
+                    onchange={(html) => { editingQuestionText = html; }}
+                  />
+                  <div class="media-upload-section">
+                    {#if editingQuestionMediaPath}
+                      <div class="media-preview">
+                        {#if editingQuestionMediaType === 'video'}
+                          <!-- svelte-ignore a11y_media_has_caption -->
+                          <video src="/{editingQuestionMediaPath}" controls class="media-thumb"></video>
+                        {:else}
+                          <img src="/{editingQuestionMediaPath}" alt="Attachment" class="media-thumb" />
+                        {/if}
+                        <button type="button" class="btn-sm danger" onclick={removeEditMedia}>{t('phases.removeMedia')}</button>
+                      </div>
+                    {:else}
+                      <label class="media-upload-label">
+                        {#if editingMediaUploading}
+                          <span class="hint">{t('phases.uploading')}</span>
+                        {:else}
+                          <span class="media-upload-text">{t('phases.attachMedia')}</span>
+                          <span class="hint">{t('phases.maxFileSize')}</span>
+                        {/if}
+                        <input type="file" accept="image/*,video/mp4,video/webm" class="media-file-input"
+                          disabled={editingMediaUploading}
+                          onchange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) handleEditMediaUpload(f); (e.target as HTMLInputElement).value = ''; }} />
+                      </label>
+                      {#if editingMediaError}
+                        <span class="error-text">{editingMediaError}</span>
+                      {/if}
+                    {/if}
+                  </div>
+                  <div class="edit-actions">
+                    <button class="btn-sm" onclick={() => editingQuestionId = null}>{t('common.cancel')}</button>
+                    <button class="btn-sm btn-confirm" onclick={() => saveQuestionEdit(q)}>{t('common.save')}</button>
+                  </div>
                 </div>
+              {:else}
+                <div class="qcard-text">{@html q.text}</div>
+                {#if q.media_path}
+                  <div class="qcard-media">
+                    {#if q.media_type === 'video'}
+                      <!-- svelte-ignore a11y_media_has_caption -->
+                      <video src="/{q.media_path}" controls class="qcard-media-thumb"></video>
+                    {:else}
+                      <img src="/{q.media_path}" alt="Attachment" class="qcard-media-thumb" />
+                    {/if}
+                    <button class="btn-sm danger" onclick={async () => {
+                      try { await media.delete(q.media_path!); } catch {}
+                      await questions.update(q.id, { ...q, media_path: null, media_type: null });
+                      if (selectedPhase) phaseQuestions = await questions.listByPhase(selectedPhase.id);
+                    }}>{t('phases.removeMedia')}</button>
+                  </div>
+                {/if}
               {/if}
 
               {#if q.question_type === 'button'}
@@ -1483,26 +1632,12 @@
     padding: 0.15rem 0.55rem;
     border-radius: 10px;
     flex-shrink: 0;
-    cursor: pointer;
-    border: none;
-    transition: opacity 0.15s;
   }
-  .type-badge:hover { opacity: 0.75; }
   .type-text    { background: #e3f0fd; color: #1a6da8; }
   .type-button  { background: #e3f5eb; color: #1a7a3e; }
   .type-image   { background: #fdf3e3; color: #a86a1a; }
   .type-info    { background: #eeeeff; color: #4444aa; }
-  .type-invite  { background: #eeeeff; color: #4444aa; cursor: default; }
-
-  .type-select {
-    font-size: 0.72rem;
-    padding: 0.15rem 0.35rem;
-    border: 1px solid #d0d3dc;
-    border-radius: 4px;
-    background: white;
-    color: #333;
-    cursor: pointer;
-  }
+  .type-invite  { background: #eeeeff; color: #4444aa; }
 
   .qcard-actions {
     display: flex;
@@ -1965,5 +2100,45 @@
     display: flex;
     flex-direction: column;
     gap: 0.15rem;
+  }
+
+  /* ── Phase name inline rename ── */
+  .phase-name-form {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex: 1;
+    min-width: 0;
+  }
+  .phase-name-input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.3rem 0.6rem;
+    border: 1px solid #1a1a2e;
+    border-radius: 4px;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #1a1a2e;
+    background: white;
+  }
+  .phase-name-input:focus {
+    outline: none;
+    border-color: #1a1a2e;
+    box-shadow: 0 0 0 2px rgba(26, 26, 46, 0.12);
+  }
+
+  /* ── Question inline edit ── */
+  .qcard-edit {
+    padding: 0.75rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    border-top: 1px solid #e8eaee;
+    background: #fafbff;
+  }
+  .edit-actions {
+    display: flex;
+    gap: 0.4rem;
+    justify-content: flex-end;
   }
 </style>
