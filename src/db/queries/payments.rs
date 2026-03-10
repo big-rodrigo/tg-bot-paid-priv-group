@@ -51,13 +51,27 @@ pub async fn get_completed_for_user(pool: &DbPool, user_id: i64) -> Result<Optio
         .map_err(Into::into)
 }
 
-pub async fn list(pool: &DbPool, status_filter: Option<&str>) -> Result<Vec<Payment>> {
-    match status_filter {
-        Some(status) => db_query_as!(pool, Payment,
+pub async fn list(pool: &DbPool, status_filter: Option<&str>, username_search: Option<&str>) -> Result<Vec<Payment>> {
+    match (status_filter, username_search) {
+        (Some(status), Some(q)) => {
+            let pattern = format!("%{}%", q);
+            db_query_as!(pool, Payment,
+                "SELECT p.* FROM payments p JOIN users u ON p.user_id = u.id WHERE p.status = ? AND (u.username LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ?) ORDER BY p.created_at DESC",
+                [status, &pattern, &pattern, &pattern], fetch_all)
+                .map_err(Into::into)
+        }
+        (Some(status), None) => db_query_as!(pool, Payment,
             "SELECT * FROM payments WHERE status = ? ORDER BY created_at DESC",
             [status], fetch_all)
             .map_err(Into::into),
-        None => db_query_as!(pool, Payment,
+        (None, Some(q)) => {
+            let pattern = format!("%{}%", q);
+            db_query_as!(pool, Payment,
+                "SELECT p.* FROM payments p JOIN users u ON p.user_id = u.id WHERE u.username LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? ORDER BY p.created_at DESC",
+                [&pattern, &pattern, &pattern], fetch_all)
+                .map_err(Into::into)
+        }
+        (None, None) => db_query_as!(pool, Payment,
             "SELECT * FROM payments ORDER BY created_at DESC",
             [], fetch_all)
             .map_err(Into::into),

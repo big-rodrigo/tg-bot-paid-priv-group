@@ -64,8 +64,11 @@ export const groups = {
 
 // ── Users ─────────────────────────────────────────────────────────────────
 export const users = {
-  list: (page = 1, limit = 50) =>
-    request<import('./types').User[]>('GET', `/users?page=${page}&limit=${limit}`),
+  list: (page = 1, limit = 50, search?: string) => {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (search) params.set('search', search);
+    return request<import('./types').User[]>('GET', `/users?${params}`);
+  },
   get: (id: number) => request<{ user: import('./types').User; registration: unknown }>('GET', `/users/${id}`),
   getAnswers: (id: number) => request<import('./types').EnrichedAnswer[]>('GET', `/users/${id}/answers`),
   getImageUrl: async (fileId: string): Promise<string> => {
@@ -132,8 +135,13 @@ export const settings = {
 
 // ── Payments ──────────────────────────────────────────────────────────────
 export const payments = {
-  list: (status?: string) =>
-    request<import('./types').Payment[]>('GET', `/payments${status ? `?status=${status}` : ''}`),
+  list: (status?: string, search?: string) => {
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    if (search) params.set('search', search);
+    const qs = params.toString();
+    return request<import('./types').Payment[]>('GET', `/payments${qs ? `?${qs}` : ''}`);
+  },
   complete: (id: number) => request<void>('POST', `/payments/${id}/complete`),
 };
 

@@ -17,6 +17,7 @@ pub struct Pagination {
     pub page: i64,
     #[serde(default = "default_limit")]
     pub limit: i64,
+    pub search: Option<String>,
 }
 
 fn default_page() -> i64 { 1 }
@@ -26,7 +27,7 @@ pub async fn list(
     State(s): State<WebState>,
     Query(p): Query<Pagination>,
 ) -> Result<Json<serde_json::Value>> {
-    let users = queries::users::list(&s.db, p.page, p.limit).await?;
+    let users = queries::users::list(&s.db, p.page, p.limit, p.search.as_deref()).await?;
     Ok(Json(serde_json::json!(users)))
 }
 

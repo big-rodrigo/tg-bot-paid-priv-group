@@ -25,7 +25,7 @@ pub async fn handle(
         }
 
         AdminCommand::Users => {
-            let users = queries::users::list(&pool, 1, 20).await?;
+            let users = queries::users::list(&pool, 1, 20, None).await?;
             if users.is_empty() {
                 bot.send_message(msg.chat.id, i18n::admin_no_users(l)).await?;
             } else {

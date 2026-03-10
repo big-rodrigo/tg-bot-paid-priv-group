@@ -169,6 +169,8 @@ const translations: Record<string, Record<Lang, string>> = {
 
   // ── Users ──
   'users.title': { en: 'Users', 'pt-BR': 'Usuários' },
+  'users.searchPlaceholder': { en: 'Search by name or username…', 'pt-BR': 'Buscar por nome ou username…' },
+  'users.noResults': { en: 'No users match your search.', 'pt-BR': 'Nenhum usuário encontrado.' },
   'users.none': { en: 'No users yet.', 'pt-BR': 'Nenhum usuário ainda.' },
   'users.noUsername': { en: 'no username', 'pt-BR': 'sem username' },
   'users.selectUser': { en: 'Select a user to view details.', 'pt-BR': 'Selecione um usuário para ver os detalhes.' },
@@ -205,6 +207,7 @@ const translations: Record<string, Record<Lang, string>> = {
 
   // ── Payments ──
   'payments.title': { en: 'Payments', 'pt-BR': 'Pagamentos' },
+  'payments.searchPlaceholder': { en: 'Search by name or username…', 'pt-BR': 'Buscar por nome ou username…' },
   'payments.filterByStatus': { en: 'Filter by status:', 'pt-BR': 'Filtrar por status:' },
   'payments.all': { en: 'All', 'pt-BR': 'Todos' },
   'payments.pending': { en: 'Pending', 'pt-BR': 'Pendente' },

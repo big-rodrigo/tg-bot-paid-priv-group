@@ -17,13 +17,14 @@ use crate::{
 #[derive(Deserialize)]
 pub struct PaymentFilter {
     pub status: Option<String>,
+    pub search: Option<String>,
 }
 
 pub async fn list(
     State(s): State<WebState>,
     Query(f): Query<PaymentFilter>,
 ) -> Result<Json<serde_json::Value>> {
-    let payments = queries::payments::list(&s.db, f.status.as_deref()).await?;
+    let payments = queries::payments::list(&s.db, f.status.as_deref(), f.search.as_deref()).await?;
     Ok(Json(serde_json::json!(payments)))
 }
 

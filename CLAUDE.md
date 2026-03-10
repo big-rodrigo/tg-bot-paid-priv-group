@@ -188,12 +188,12 @@ Options:      GET/POST /api/questions/{question_id}/options
 
 Groups:       GET/POST/PUT/DEL /api/groups, /api/groups/{id}
 
-Users:        GET /api/users                        ?page=&limit=
+Users:        GET /api/users                        ?page=&limit=&search=
               GET /api/users/{id}
               GET /api/users/{id}/answers
               GET /api/users/{id}/invite_links
 
-Payments:     GET  /api/payments                    ?status=
+Payments:     GET  /api/payments                    ?status=&search=
               POST /api/payments/{id}/complete       manually mark pending → completed + deliver invites
               POST /api/webhooks/payment             (no auth)
 

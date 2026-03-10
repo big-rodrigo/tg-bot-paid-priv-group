@@ -35,10 +35,21 @@ pub async fn get_by_telegram_id(pool: &DbPool, telegram_id: i64) -> Result<Optio
         .map_err(Into::into)
 }
 
-pub async fn list(pool: &DbPool, page: i64, limit: i64) -> Result<Vec<User>> {
+pub async fn list(pool: &DbPool, page: i64, limit: i64, search: Option<&str>) -> Result<Vec<User>> {
     let offset = (page - 1).max(0) * limit;
-    db_query_as!(pool, User, "SELECT * FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?", [limit, offset], fetch_all)
-        .map_err(Into::into)
+    match search {
+        Some(q) => {
+            let pattern = format!("%{}%", q);
+            db_query_as!(pool, User,
+                "SELECT * FROM users WHERE username LIKE ? OR first_name LIKE ? OR last_name LIKE ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                [&pattern, &pattern, &pattern, limit, offset], fetch_all)
+                .map_err(Into::into)
+        }
+        None => db_query_as!(pool, User,
+            "SELECT * FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            [limit, offset], fetch_all)
+            .map_err(Into::into),
+    }
 }
 
 /// Reset a user's registration progress: clear answers, cancel pending payments,

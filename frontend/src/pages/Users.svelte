@@ -6,6 +6,7 @@
 
   let allUsers: User[] = $state([]);
   let loading = $state(true);
+  let searching = $state(false);
   let error = $state('');
   let selected: User | null = $state(null);
   let selectedRegistration: any = $state(null);
@@ -14,6 +15,29 @@
   let actionMsg = $state('');
   let actionType: 'success' | 'error' | '' = $state('');
   let imageOverlay: string | null = $state(null);
+  let search = $state('');
+  let searchTimer: ReturnType<typeof setTimeout> | null = null;
+
+  async function loadUsers(q?: string) {
+    searching = true;
+    try {
+      allUsers = await users.list(1, 50, q || undefined);
+    } catch (e: any) {
+      error = e.message;
+    } finally {
+      searching = false;
+    }
+  }
+
+  function onSearchInput() {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => loadUsers(search), 300);
+  }
+
+  function clearSearch() {
+    search = '';
+    loadUsers();
+  }
 
   onMount(async () => {
     try {
@@ -152,8 +176,29 @@
 
 <div class="layout" class:detail-open={!!selected}>
   <section class="user-list-section">
-    {#if loading}<p>{t('common.loading')}</p>
-    {:else if allUsers.length === 0}<p>{t('users.none')}</p>
+    <div class="search-wrap">
+      <span class="search-icon">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="6.5" cy="6.5" r="5" stroke="#888" stroke-width="1.6"/>
+          <line x1="10.35" y1="10.35" x2="14" y2="14" stroke="#888" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <input
+        class="search-input"
+        type="text"
+        placeholder={t('users.searchPlaceholder')}
+        bind:value={search}
+        oninput={onSearchInput}
+      />
+      {#if searching}
+        <span class="search-spinner"></span>
+      {:else if search}
+        <button class="search-clear" onclick={clearSearch} aria-label="Clear search">×</button>
+      {/if}
+    </div>
+    {#if loading}<p class="list-msg">{t('common.loading')}</p>
+    {:else if allUsers.length === 0}
+      <p class="list-msg">{search ? t('users.noResults') : t('users.none')}</p>
     {:else}
       <ul class="user-list">
         {#each allUsers as user (user.id)}
@@ -286,6 +331,65 @@
     .layout.detail-open .user-list-section { display: none; }
     .back-btn { display: block; }
   }
+
+  /* ── Search ── */
+  .search-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.65rem;
+  }
+  .search-icon {
+    position: absolute;
+    left: 0.65rem;
+    display: flex;
+    align-items: center;
+    pointer-events: none;
+  }
+  .search-input {
+    width: 100%;
+    padding: 0.45rem 2.2rem 0.45rem 2.1rem;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font: inherit;
+    font-size: 0.85rem;
+    color: #333;
+    background: #fff;
+    box-sizing: border-box;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .search-input:focus {
+    outline: none;
+    border-color: #1a1a2e;
+    box-shadow: 0 0 0 3px rgba(26,26,46,.08);
+  }
+  .search-input::placeholder { color: #aaa; }
+  .search-clear {
+    position: absolute;
+    right: 0.5rem;
+    background: none;
+    border: none;
+    color: #999;
+    font-size: 1.1rem;
+    line-height: 1;
+    padding: 0.2rem 0.3rem;
+    cursor: pointer;
+    border-radius: 3px;
+  }
+  .search-clear:hover { color: #333; background: #f0f0f0; }
+  .search-spinner {
+    position: absolute;
+    right: 0.65rem;
+    width: 14px;
+    height: 14px;
+    border: 2px solid #ddd;
+    border-top-color: #1a1a2e;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .list-msg { color: #888; font-size: 0.88rem; padding: 0.4rem 0; }
+
   .user-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.3rem; }
   .user-list li button { background: white; padding: 0.6rem 0.8rem; border-radius: 6px; cursor: pointer; display: flex; flex-direction: column; box-shadow: 0 1px 3px rgba(0,0,0,.07); width: 100%; text-align: left; font: inherit; color: inherit; border: 1px solid transparent; }
   .user-list li button:hover { background: #f0f4ff; }
