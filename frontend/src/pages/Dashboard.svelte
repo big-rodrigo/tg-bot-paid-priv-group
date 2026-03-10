@@ -67,4 +67,9 @@
   .num { font-size: 2rem; font-weight: 700; color: #1a1a2e; }
   .label { font-size: 0.85rem; color: #666; }
   .error { color: red; }
+
+  @media (max-width: 640px) {
+    .stats { grid-template-columns: repeat(2, 1fr); gap: 0.75rem; }
+    .num { font-size: 1.6rem; }
+  }
 </style>

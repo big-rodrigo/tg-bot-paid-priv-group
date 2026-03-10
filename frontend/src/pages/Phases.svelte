@@ -1126,6 +1126,36 @@
     top: 1rem;
   }
 
+  @media (max-width: 768px) {
+    .phases-layout {
+      grid-template-columns: 1fr;
+    }
+    .phases-sidebar {
+      position: static;
+      max-height: none;
+      overflow: visible;
+    }
+    .sidebar-list {
+      max-height: 40vh;
+      overflow-y: auto;
+    }
+    .questions-empty-state {
+      padding: 2rem 1rem;
+    }
+    .questions-header {
+      flex-wrap: wrap;
+    }
+    .header-buttons {
+      flex-wrap: wrap;
+    }
+    .qcard-header {
+      flex-wrap: wrap;
+    }
+    .cond-question {
+      max-width: 100%;
+    }
+  }
+
   .sidebar-header {
     display: flex;
     align-items: center;

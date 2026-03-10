@@ -50,41 +50,48 @@
 {:else if allPayments.length === 0}
   <p>{t('payments.none')}</p>
 {:else}
-  <table>
-    <thead>
-      <tr>
-        <th>{t('payments.id')}</th>
-        <th>{t('payments.userId')}</th>
-        <th>{t('payments.provider')}</th>
-        <th>{t('payments.status')}</th>
-        <th>{t('payments.amount')}</th>
-        <th>{t('payments.reference')}</th>
-        <th>{t('payments.created')}</th>
-      </tr>
-    </thead>
-    <tbody>
-      {#each allPayments as p (p.id)}
+  <div class="table-wrap">
+    <table>
+      <thead>
         <tr>
-          <td>{p.id}</td>
-          <td>{p.user_id}</td>
-          <td>{p.provider}</td>
-          <td><span class="badge" style="background:{statusColor(p.status)}">{p.status}</span></td>
-          <td>{p.amount != null ? `${(p.amount / 100).toFixed(2)} ${p.currency ?? ''}` : '—'}</td>
-          <td><code>{p.external_ref ?? '—'}</code></td>
-          <td>{p.created_at}</td>
+          <th>{t('payments.id')}</th>
+          <th>{t('payments.userId')}</th>
+          <th>{t('payments.provider')}</th>
+          <th>{t('payments.status')}</th>
+          <th>{t('payments.amount')}</th>
+          <th>{t('payments.reference')}</th>
+          <th>{t('payments.created')}</th>
         </tr>
-      {/each}
-    </tbody>
-  </table>
+      </thead>
+      <tbody>
+        {#each allPayments as p (p.id)}
+          <tr>
+            <td>{p.id}</td>
+            <td>{p.user_id}</td>
+            <td>{p.provider}</td>
+            <td><span class="badge" style="background:{statusColor(p.status)}">{p.status}</span></td>
+            <td>{p.amount != null ? `${(p.amount / 100).toFixed(2)} ${p.currency ?? ''}` : '—'}</td>
+            <td><code>{p.external_ref ?? '—'}</code></td>
+            <td>{p.created_at}</td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+  </div>
 {/if}
 
 <style>
-  .filters { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+  .filters { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
   select { padding: 0.35rem 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
   button { padding: 0.35rem 0.75rem; border: none; border-radius: 4px; cursor: pointer; background: #1a1a2e; color: white; }
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
-  th, td { padding: 0.7rem 1rem; text-align: left; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+  th, td { padding: 0.7rem 1rem; text-align: left; border-bottom: 1px solid #eee; font-size: 0.9rem; white-space: nowrap; }
   th { background: #f9f9f9; font-weight: 600; }
   .badge { color: white; padding: 0.2rem 0.5rem; border-radius: 10px; font-size: 0.8rem; }
   .error { color: red; }
+
+  @media (max-width: 640px) {
+    td, th { padding: 0.6rem 0.75rem; font-size: 0.82rem; }
+  }
 </style>

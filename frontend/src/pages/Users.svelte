@@ -150,8 +150,8 @@
 
 {#if error}<p class="error">{error}</p>{/if}
 
-<div class="layout">
-  <section>
+<div class="layout" class:detail-open={!!selected}>
+  <section class="user-list-section">
     {#if loading}<p>{t('common.loading')}</p>
     {:else if allUsers.length === 0}<p>{t('users.none')}</p>
     {:else}
@@ -168,7 +168,10 @@
     {/if}
   </section>
 
-  <section>
+  <section class="user-detail-section">
+    {#if selected}
+      <button class="back-btn" onclick={() => { selected = null; }}>← {t('users.title')}</button>
+    {/if}
     {#if (allUsers.length > 0 && !selected)}
       <p>{t('users.selectUser')}</p>
     {:else if selected}
@@ -273,6 +276,16 @@
 
 <style>
   .layout { display: grid; grid-template-columns: 300px 1fr; gap: 1.5rem; }
+  .back-btn { display: none; background: none; border: none; color: #1a1a2e; font-size: 0.9rem; font-weight: 600; cursor: pointer; padding: 0 0 0.75rem; }
+  .back-btn:hover { text-decoration: underline; }
+
+  @media (max-width: 640px) {
+    .layout { grid-template-columns: 1fr; gap: 0; }
+    .user-list-section { display: block; }
+    .user-detail-section { display: block; }
+    .layout.detail-open .user-list-section { display: none; }
+    .back-btn { display: block; }
+  }
   .user-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.3rem; }
   .user-list li button { background: white; padding: 0.6rem 0.8rem; border-radius: 6px; cursor: pointer; display: flex; flex-direction: column; box-shadow: 0 1px 3px rgba(0,0,0,.07); width: 100%; text-align: left; font: inherit; color: inherit; border: 1px solid transparent; }
   .user-list li button:hover { background: #f0f4ff; }

@@ -270,4 +270,9 @@
     color: #333;
     word-break: break-all;
   }
+
+  @media (max-width: 640px) {
+    .card { padding: 1rem; }
+    .actions { flex-wrap: wrap; }
+  }
 </style>
