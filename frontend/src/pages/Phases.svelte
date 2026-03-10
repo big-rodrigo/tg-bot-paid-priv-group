@@ -18,6 +18,7 @@
   let newPhaseName = $state('');
   let newPhaseDesc = $state('');
   let newPhaseType: 'normal' | 'invite' | 'payment' = $state('normal');
+  let hasPaymentPhase = $derived(allPhases.some(p => p.phase_type === 'payment'));
   let newQText = $state('');
   let newQType: Question['question_type'] = $state('text');
   let newOptLabel = $state('');
@@ -154,7 +155,6 @@
   }
 
   async function selectPhase(phase: Phase) {
-    selectedPhase = phase;
     questionOptionsMap = {};
     showAddForm = false;
     showAddRuleForm = false;
@@ -191,6 +191,11 @@
       gateConditions = [];
       await refreshAllOptions(phaseQuestions);
     }
+
+    // Set selectedPhase last so the TelegramEditor mounts only after all state
+    // (including gateRejectionText) is fully populated. If set first, the editor
+    // mounts with the old empty value before the awaits above complete.
+    selectedPhase = phase;
   }
 
   // ── Normal phase question functions ──
@@ -274,8 +279,7 @@
     const typeOrder: Record<string, number> = { normal: 0, payment: 1, invite: 2 };
     const phaseOrder = typeOrder[phase.phase_type] ?? 0;
     const otherOrder = typeOrder[other.phase_type] ?? 0;
-    if (dir === 1 && phaseOrder > otherOrder) return false;
-    if (dir === -1 && phaseOrder < otherOrder) return false;
+    if (phaseOrder !== otherOrder) return false;
     return true;
   }
 
@@ -574,7 +578,7 @@
         <input bind:value={newPhaseDesc} placeholder={t('phases.descOptional')} />
         <select bind:value={newPhaseType} class="phase-type-select">
           <option value="normal">{t('phases.typeNormal')}</option>
-          <option value="payment">{t('phases.typePayment')}</option>
+          <option value="payment" disabled={hasPaymentPhase}>{t('phases.typePayment')}</option>
           <option value="invite">{t('phases.typeInvite')}</option>
         </select>
         <button type="submit" class="btn-primary full-width">{t('phases.addPhase')}</button>

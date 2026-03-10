@@ -30,12 +30,39 @@ pub async fn create(
     State(s): State<WebState>,
     Json(body): Json<CreatePhase>,
 ) -> Result<(StatusCode, Json<serde_json::Value>)> {
-    let position = body.position.unwrap_or(0);
     let phase_type = body.phase_type.as_deref().unwrap_or("normal");
 
     if phase_type != "normal" && phase_type != "invite" && phase_type != "payment" {
         return Err(AppError::Other("phase_type must be 'normal', 'invite', or 'payment'".into()));
     }
+
+    // Pre-flight: reject immediately if an active payment phase already exists.
+    if phase_type == "payment" && queries::phases::get_active_payment(&s.db).await?.is_some() {
+        return Err(AppError::Other(
+            "An active payment gate phase already exists. Delete it before creating a new one.".into(),
+        ));
+    }
+
+    // If creating a payment phase, auto-insert it before any existing invite phases.
+    let position = if phase_type == "payment" {
+        let all = queries::phases::list_all(&s.db).await?;
+        let first_invite_pos = all.iter()
+            .filter(|p| p.phase_type == "invite")
+            .map(|p| p.position)
+            .min();
+        if let Some(invite_pos) = first_invite_pos {
+            let shifted: Vec<(i64, i64)> = all.iter()
+                .filter(|p| p.phase_type == "invite")
+                .map(|p| (p.id, p.position + 1))
+                .collect();
+            queries::phases::reorder(&s.db, &shifted).await?;
+            invite_pos
+        } else {
+            body.position.unwrap_or(0)
+        }
+    } else {
+        body.position.unwrap_or(0)
+    };
 
     let id = queries::phases::create(
         &s.db,
@@ -82,12 +109,37 @@ pub async fn update(
         return Err(AppError::Other("phase_type must be 'normal', 'invite', or 'payment'".into()));
     }
 
+    // For payment phases, auto-correct position if it ended up after invite phases.
+    let position = if phase_type == "payment" {
+        let all = queries::phases::list_all(&s.db).await?;
+        let first_invite_pos = all.iter()
+            .filter(|p| p.phase_type == "invite")
+            .map(|p| p.position)
+            .min();
+        if let Some(invite_pos) = first_invite_pos {
+            if existing.position >= invite_pos {
+                let shifted: Vec<(i64, i64)> = all.iter()
+                    .filter(|p| p.phase_type == "invite")
+                    .map(|p| (p.id, p.position + 1))
+                    .collect();
+                queries::phases::reorder(&s.db, &shifted).await?;
+                invite_pos
+            } else {
+                body.position
+            }
+        } else {
+            body.position
+        }
+    } else {
+        body.position
+    };
+
     queries::phases::update(
         &s.db,
         id,
         &body.name,
         body.description.as_deref(),
-        body.position,
+        position,
         body.active,
         phase_type,
         body.rejection_text.as_deref(),
