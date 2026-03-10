@@ -1,19 +1,5 @@
 use teloxide::utils::command::BotCommands;
 
-/// Commands available to all users.
-#[derive(BotCommands, Clone, Debug)]
-#[command(rename_rule = "lowercase", description = "Available commands:")]
-pub enum UserCommand {
-    #[command(description = "Start the registration process")]
-    Start,
-    #[command(description = "Show this help message")]
-    Help,
-    #[command(description = "Check your registration status")]
-    Status,
-    #[command(description = "Get your invite links again")]
-    Mylinks,
-}
-
 /// Commands available only to the configured admin user.
 #[derive(BotCommands, Clone, Debug)]
 #[command(rename_rule = "lowercase", description = "Admin commands:")]

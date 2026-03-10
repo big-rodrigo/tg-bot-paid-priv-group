@@ -38,7 +38,7 @@ pub async fn handle(bot: Bot, update: ChatMemberUpdated, pool: DbPool) -> Handle
     if let Some(owner) = owner {
         if owner.telegram_id != joining_telegram_id {
             // Wrong user — kick silently without marking the link as used
-            // so the rightful owner can still use /mylinks to regenerate
+            // so the rightful owner can still use /links to regenerate
             let chat_id = update.chat.id;
             let user_id = update.new_chat_member.user.id;
             let _ = bot.ban_chat_member(chat_id, user_id).await;

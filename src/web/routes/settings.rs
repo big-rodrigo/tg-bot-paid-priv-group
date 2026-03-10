@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::{
+    bot,
     db::models::Setting,
     db_execute, db_query_as,
     error::{AppError, Result},
@@ -39,10 +40,11 @@ pub async fn update(
         "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         [&key, &body.value])?;
 
-    // Sync in-memory language cache
+    // Sync in-memory language cache and re-register bot commands with Telegram
     if key == "bot_language" {
-        let mut guard = s.lang.write().await;
-        *guard = Lang::from_code(&body.value);
+        let lang = Lang::from_code(&body.value);
+        *s.lang.write().await = lang;
+        bot::set_bot_commands(&s.bot, lang).await;
     }
 
     let setting = db_query_as!(&s.db, Setting, "SELECT * FROM settings WHERE key = ?", [&key], fetch_one)?;

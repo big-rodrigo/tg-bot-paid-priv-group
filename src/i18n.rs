@@ -223,7 +223,7 @@ pub fn no_matches(l: Lang) -> &'static str {
     }
 }
 
-// ── /mylinks & refresh ───────────────────────────────────────────────────────
+// ── /links & refresh ─────────────────────────────────────────────────────────
 
 pub fn not_registered(l: Lang) -> &'static str {
     match l {
@@ -327,6 +327,34 @@ pub fn admin_no_username(l: Lang) -> &'static str {
 
 // ── Help / command descriptions ──────────────────────────────────────────────
 
+pub fn cmd_start(l: Lang) -> &'static str {
+    match l {
+        Lang::En => "Start the registration process",
+        Lang::PtBr => "Iniciar o processo de cadastro",
+    }
+}
+
+pub fn cmd_help(l: Lang) -> &'static str {
+    match l {
+        Lang::En => "Show this help message",
+        Lang::PtBr => "Mostrar esta mensagem de ajuda",
+    }
+}
+
+pub fn cmd_status(l: Lang) -> &'static str {
+    match l {
+        Lang::En => "Check your registration status",
+        Lang::PtBr => "Verificar o status do seu cadastro",
+    }
+}
+
+pub fn cmd_links(l: Lang) -> &'static str {
+    match l {
+        Lang::En => "Get your invite links again",
+        Lang::PtBr => "Obter seus links de convite novamente",
+    }
+}
+
 pub fn help_text(l: Lang) -> &'static str {
     match l {
         Lang::En => "\
@@ -334,13 +362,13 @@ Available commands:
 /start — Start the registration process
 /help — Show this help message
 /status — Check your registration status
-/mylinks — Get your invite links again",
+/links — Get your invite links again",
         Lang::PtBr => "\
 Comandos disponíveis:
 /start — Iniciar o processo de cadastro
 /help — Mostrar esta mensagem de ajuda
 /status — Verificar o status do seu cadastro
-/mylinks — Obter seus links de convite novamente",
+/links — Obter seus links de convite novamente",
     }
 }
 

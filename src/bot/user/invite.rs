@@ -382,7 +382,7 @@ pub async fn try_proactive_payment_check(
     Ok(false)
 }
 
-/// Handler for the /mylinks command.
+/// Handler for the /links command.
 pub async fn handle_mylinks(
     bot: Bot,
     msg: Message,

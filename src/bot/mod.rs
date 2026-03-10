@@ -10,7 +10,7 @@ use teloxide::{
     dispatching::UpdateFilterExt,
     dptree,
     prelude::*,
-    utils::command::BotCommands,
+    types::BotCommand,
 };
 use tokio::sync::RwLock;
 
@@ -21,8 +21,25 @@ use crate::{
     payment::PaymentProvider,
 };
 
-use commands::{AdminCommand, UserCommand};
+use commands::AdminCommand;
 use state::{BotStorage, HandlerResult, State};
+
+/// Returns the user-facing bot commands with descriptions in the given language.
+pub fn user_commands_for_lang(lang: Lang) -> Vec<BotCommand> {
+    vec![
+        BotCommand::new("start", i18n::cmd_start(lang)),
+        BotCommand::new("help", i18n::cmd_help(lang)),
+        BotCommand::new("status", i18n::cmd_status(lang)),
+        BotCommand::new("links", i18n::cmd_links(lang)),
+    ]
+}
+
+/// Registers bot commands with Telegram using translated descriptions.
+pub async fn set_bot_commands(bot: &Bot, lang: Lang) {
+    if let Err(e) = bot.set_my_commands(user_commands_for_lang(lang)).await {
+        tracing::warn!("Failed to set bot commands: {e}");
+    }
+}
 
 /// Build and run the Teloxide dispatcher. This function runs indefinitely.
 pub async fn run_dispatcher(
@@ -34,9 +51,8 @@ pub async fn run_dispatcher(
     lang: Arc<RwLock<Lang>>,
 ) {
     // Register user-visible commands with Telegram so they appear in the "/" menu
-    if let Err(e) = bot.set_my_commands(UserCommand::bot_commands()).await {
-        tracing::warn!("Failed to set bot commands: {e}");
-    }
+    let l = *lang.read().await;
+    set_bot_commands(&bot, l).await;
 
     Dispatcher::builder(bot.clone(), build_handler())
         .dependencies(dptree::deps![storage, pool, config, payment_provider, lang])
@@ -87,11 +103,11 @@ fn build_handler() -> teloxide::dispatching::UpdateHandler<Box<dyn std::error::E
             })
             .endpoint(user::welcome::handle_status),
         )
-        // /mylinks
+        // /links
         .branch(
             dptree::filter_map(|msg: Message| {
                 msg.text()
-                    .and_then(|t| if t.trim() == "/mylinks" { Some(()) } else { None })
+                    .and_then(|t| if t.trim() == "/links" { Some(()) } else { None })
             })
             .endpoint(user::invite::handle_mylinks),
         )
