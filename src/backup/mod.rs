@@ -257,33 +257,83 @@ impl BackupManager {
 
                 Ok(backup_path)
             }
-            DbPool::Postgres(_) => {
-                let filename = format!("backup_{timestamp}.sql");
-                let backup_path = tmp_dir.join(&filename);
-
-                let output = tokio::process::Command::new("pg_dump")
+            DbPool::Postgres(pg_pool) => {
+                // Try pg_dump first; fall back to pure-SQL JSON export
+                let pg_dump_result = tokio::process::Command::new("pg_dump")
                     .arg(&format!("--dbname={}", self.config.database_url))
                     .arg("--format=plain")
                     .arg("--no-owner")
                     .arg("--no-acl")
                     .output()
-                    .await
-                    .map_err(|e| {
-                        anyhow::anyhow!(
-                            "Failed to run pg_dump (is it installed?): {e}"
-                        )
-                    })?;
+                    .await;
 
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    return Err(anyhow::anyhow!("pg_dump failed: {stderr}"));
+                match pg_dump_result {
+                    Ok(output) if output.status.success() => {
+                        let filename = format!("backup_{timestamp}.sql");
+                        let backup_path = tmp_dir.join(&filename);
+                        tokio::fs::write(&backup_path, &output.stdout).await?;
+                        Ok(backup_path)
+                    }
+                    _ => {
+                        tracing::info!("pg_dump not available, using pure-SQL JSON backup");
+                        backup_postgres_json(pg_pool, &tmp_dir, &timestamp).await
+                    }
                 }
-
-                tokio::fs::write(&backup_path, &output.stdout).await?;
-                Ok(backup_path)
             }
         }
     }
+}
+
+/// Pure-SQL PostgreSQL backup: exports all public tables as a JSON file.
+async fn backup_postgres_json(
+    pool: &sqlx::PgPool,
+    tmp_dir: &Path,
+    timestamp: &str,
+) -> anyhow::Result<PathBuf> {
+    let filename = format!("backup_{timestamp}.json");
+    let backup_path = tmp_dir.join(&filename);
+
+    // Get all public table names (exclude sqlx migration tables)
+    let tables: Vec<(String,)> = sqlx::query_as(
+        "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename NOT LIKE '_sqlx%'"
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut table_map = serde_json::Map::new();
+
+    for (table_name,) in &tables {
+        if !table_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            tracing::warn!("Skipping table with invalid name: {table_name}");
+            continue;
+        }
+
+        let rows: Vec<(String,)> = sqlx::query_as(
+            &format!("SELECT row_to_json(t)::text FROM {table_name} t"),
+        )
+        .fetch_all(pool)
+        .await?;
+
+        let json_rows: Vec<serde_json::Value> = rows
+            .into_iter()
+            .filter_map(|(s,)| serde_json::from_str(&s).ok())
+            .collect();
+
+        table_map.insert(
+            table_name.clone(),
+            serde_json::Value::Array(json_rows),
+        );
+    }
+
+    let backup_data = serde_json::json!({
+        "format": "tgbot-json-v1",
+        "tables": table_map,
+    });
+
+    let content = serde_json::to_string(&backup_data)?;
+    tokio::fs::write(&backup_path, content).await?;
+
+    Ok(backup_path)
 }
 
 /// Compress a file with gzip, returning the path to the .gz file.
