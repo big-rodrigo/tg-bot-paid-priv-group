@@ -8,6 +8,15 @@ export default defineConfig({
   build: {
     outDir: '../static',
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('@tiptap/')) {
+            return 'tiptap';
+          }
+        },
+      },
+    },
   },
   server: {
     // Proxy API calls to the Rust backend during development
