@@ -6,6 +6,7 @@
 
   let allGroups: Group[] = [];
   let loading = true;
+  let saving = false;
   let error = '';
   let newTelegramId = '';
   let newTitle = '';
@@ -25,20 +26,44 @@
   async function create() {
     const telegram_id = parseInt(newTelegramId);
     if (!telegram_id || !newTitle.trim()) return;
-    await groups.create({ telegram_id, title: newTitle });
-    newTelegramId = ''; newTitle = '';
-    await load();
+    saving = true;
+    error = '';
+    try {
+      await groups.create({ telegram_id, title: newTitle });
+      newTelegramId = ''; newTitle = '';
+      await load();
+    } catch (e: any) {
+      error = e.message;
+    } finally {
+      saving = false;
+    }
   }
 
   async function toggle(group: Group) {
-    await groups.update(group.id, { ...group, active: !group.active });
-    await load();
+    saving = true;
+    error = '';
+    try {
+      await groups.update(group.id, { ...group, active: !group.active });
+      await load();
+    } catch (e: any) {
+      error = e.message;
+    } finally {
+      saving = false;
+    }
   }
 
   async function remove(id: number) {
     if (!confirm(t('groups.removeConfirm'))) return;
-    await groups.delete(id);
-    await load();
+    saving = true;
+    error = '';
+    try {
+      await groups.delete(id);
+      await load();
+    } catch (e: any) {
+      error = e.message;
+    } finally {
+      saving = false;
+    }
   }
 </script>
 
@@ -48,9 +73,9 @@
 {#if error}<p class="error">{error}</p>{/if}
 
 <form on:submit|preventDefault={create} class="add-form">
-  <input bind:value={newTelegramId} placeholder={t('groups.telegramIdPlaceholder')} required />
-  <input bind:value={newTitle} placeholder={t('groups.titlePlaceholder')} required />
-  <button type="submit">{t('groups.addGroup')}</button>
+  <input bind:value={newTelegramId} placeholder={t('groups.telegramIdPlaceholder')} required disabled={saving} />
+  <input bind:value={newTitle} placeholder={t('groups.titlePlaceholder')} required disabled={saving} />
+  <button type="submit" disabled={saving}>{saving ? '…' : t('groups.addGroup')}</button>
 </form>
 
 {#if loading}
@@ -71,8 +96,8 @@
             <td>{g.title}</td>
             <td>{g.active ? '✅' : '❌'}</td>
             <td>
-              <button on:click={() => toggle(g)}>{g.active ? t('common.disable') : t('common.enable')}</button>
-              <button class="danger" on:click={() => remove(g.id)}>{t('common.remove')}</button>
+              <button on:click={() => toggle(g)} disabled={saving}>{g.active ? t('common.disable') : t('common.enable')}</button>
+              <button class="danger" on:click={() => remove(g.id)} disabled={saving}>{t('common.remove')}</button>
             </td>
           </tr>
         {/each}
@@ -86,6 +111,7 @@
   .add-form input { flex: 1; min-width: 160px; padding: 0.4rem 0.6rem; border: 1px solid #ccc; border-radius: 4px; }
   button { padding: 0.4rem 0.8rem; border: none; border-radius: 4px; cursor: pointer; background: #1a1a2e; color: white; }
   button.danger { background: #c0392b; }
+  button:disabled { opacity: 0.6; cursor: default; }
   .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
   th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #eee; white-space: nowrap; }

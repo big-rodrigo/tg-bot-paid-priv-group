@@ -11,6 +11,8 @@
   let phaseQuestions: Question[] = $state([]);
   let questionOptionsMap: Record<number, QuestionOption[]> = $state({});
   let loading = $state(true);
+  let loadingPhaseDetail = $state(false);
+  let savingPhase = $state(false);
   let error = $state('');
   let showAddForm = $state(false);
 
@@ -136,6 +138,7 @@
 
   async function createPhase() {
     if (!newPhaseName.trim()) return;
+    savingPhase = true;
     try {
       await phases.create({
         name: newPhaseName,
@@ -147,6 +150,8 @@
       await load();
     } catch (e: any) {
       error = e.message;
+    } finally {
+      savingPhase = false;
     }
   }
 
@@ -175,7 +180,9 @@
     addingConditionForRule = null;
     editingPhaseName = false;
     editingQuestionId = null;
+    loadingPhaseDetail = true;
 
+    try {
     if (phase.phase_type === 'invite') {
       phaseQuestions = await questions.listByPhase(phase.id);
       phaseInviteRules = await inviteRules.listByPhase(phase.id);
@@ -210,6 +217,9 @@
     // (including gateRejectionText) is fully populated. If set first, the editor
     // mounts with the old empty value before the awaits above complete.
     selectedPhase = phase;
+    } finally {
+      loadingPhaseDetail = false;
+    }
   }
 
   // ── Normal phase question functions ──
@@ -632,7 +642,7 @@
           <option value="payment" disabled={hasPaymentPhase}>{t('phases.typePayment')}</option>
           <option value="invite">{t('phases.typeInvite')}</option>
         </select>
-        <button type="submit" class="btn-primary full-width">{t('phases.addPhase')}</button>
+        <button type="submit" class="btn-primary full-width" disabled={savingPhase}>{savingPhase ? '…' : t('phases.addPhase')}</button>
       </form>
     </div>
   </aside>
@@ -640,7 +650,13 @@
   <!-- ── Main area ── -->
   <main class="questions-main">
 
-    {#if !selectedPhase}
+    {#if loadingPhaseDetail}
+      <div class="questions-empty-state">
+        <span class="detail-spinner"></span>
+        <p>{t('common.loading')}</p>
+      </div>
+
+    {:else if !selectedPhase}
       <div class="questions-empty-state">
         <div class="empty-icon">&#8592;</div>
         <p>{t('phases.selectPhase')}</p>
@@ -1485,6 +1501,15 @@
     font-size: 2rem;
     opacity: 0.4;
   }
+  .detail-spinner {
+    width: 28px;
+    height: 28px;
+    border: 3px solid #e2e4e9;
+    border-top-color: #1a1a2e;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
   .questions-empty-state p {
     font-size: 0.9rem;
     color: #bbb;

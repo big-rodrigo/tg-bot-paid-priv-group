@@ -14,6 +14,8 @@
   let selectedAnswers: EnrichedAnswer[] = $state([]);
   let actionMsg = $state('');
   let actionType: 'success' | 'error' | '' = $state('');
+  let actionLoading = $state('');
+  let loadingDetail = $state(false);
   let imageOverlay: string | null = $state(null);
   let search = $state('');
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -70,12 +72,18 @@
     selected = user;
     actionMsg = '';
     actionType = '';
-    const detail = await users.get(user.id);
-    selectedRegistration = detail.registration;
-    [selectedLinks, selectedAnswers] = await Promise.all([
-      users.getInviteLinks(user.id),
-      users.getAnswers(user.id),
-    ]);
+    actionLoading = '';
+    loadingDetail = true;
+    try {
+      const detail = await users.get(user.id);
+      selectedRegistration = detail.registration;
+      [selectedLinks, selectedAnswers] = await Promise.all([
+        users.getInviteLinks(user.id),
+        users.getAnswers(user.id),
+      ]);
+    } finally {
+      loadingDetail = false;
+    }
   }
 
   async function refreshSelected() {
@@ -84,6 +92,7 @@
   }
 
   async function sendInvites(user: User) {
+    actionLoading = 'sendInvites';
     try {
       await users.sendInvites(user.id);
       actionMsg = t('users.invitesSent');
@@ -92,11 +101,14 @@
     } catch (e: any) {
       actionMsg = `${t('common.error')}: ${e.message}`;
       actionType = 'error';
+    } finally {
+      actionLoading = '';
     }
   }
 
   async function revokeLinks(user: User) {
     if (!confirm(t('users.revokeConfirm'))) return;
+    actionLoading = 'revokeLinks';
     try {
       await users.revokeLinks(user.id);
       actionMsg = t('users.linksRevoked');
@@ -105,6 +117,8 @@
     } catch (e: any) {
       actionMsg = `${t('common.error')}: ${e.message}`;
       actionType = 'error';
+    } finally {
+      actionLoading = '';
     }
   }
 
@@ -113,6 +127,7 @@
       ? `Reiniciar cadastro de ${user.first_name}?\n\nIsso irá excluir todas as respostas, cancelar pagamentos pendentes e permitir que o usuário envie /start para recomeçar.`
       : `Reset registration for ${user.first_name}?\n\nThis will delete all their answers, cancel pending payments, and allow them to /start the registration from scratch.`;
     if (!confirm(msg)) return;
+    actionLoading = 'resetRegistration';
     try {
       await users.resetRegistration(user.id);
       actionMsg = t('users.resetSuccess');
@@ -121,6 +136,8 @@
     } catch (e: any) {
       actionMsg = `${t('common.error')}: ${e.message}`;
       actionType = 'error';
+    } finally {
+      actionLoading = '';
     }
   }
 
@@ -129,6 +146,7 @@
       ? `Descadastrar completamente ${user.first_name}?\n\nIsso irá:\n- Excluir todas as respostas\n- Cancelar/excluir todos os pagamentos\n- Revogar e excluir todos os links de convite\n- Remover o progresso do cadastro\n\nEsta ação não pode ser desfeita.`
       : `Fully unregister ${user.first_name}?\n\nThis will:\n- Delete all answers\n- Cancel/delete all payments\n- Revoke and delete all invite links\n- Remove registration progress\n\nThis action cannot be undone.`;
     if (!confirm(msg)) return;
+    actionLoading = 'unregister';
     try {
       await users.unregister(user.id);
       actionMsg = t('users.unregisterSuccess');
@@ -137,6 +155,8 @@
     } catch (e: any) {
       actionMsg = `${t('common.error')}: ${e.message}`;
       actionType = 'error';
+    } finally {
+      actionLoading = '';
     }
   }
 
@@ -221,6 +241,9 @@
       <p>{t('users.selectUser')}</p>
     {:else if selected}
       <h2>{selected.first_name} {selected.last_name ?? ''}</h2>
+      {#if loadingDetail}
+        <div class="detail-loading"><span class="detail-spinner"></span> {t('common.loading')}</div>
+      {:else}
       <p><strong>{t('users.telegramId')}</strong> {selected.telegram_id}</p>
       <p><strong>{t('users.username')}</strong> @{selected.username ?? '—'}</p>
       <p><strong>{t('users.registered')}</strong> {selected.created_at}</p>
@@ -234,12 +257,20 @@
 
       <div class="actions-group">
         <div class="actions-row">
-          <button onclick={() => sendInvites(selected!)}>{t('users.sendInvites')}</button>
-          <button class="warn" onclick={() => revokeLinks(selected!)}>{t('users.revokeLinks')}</button>
+          <button onclick={() => sendInvites(selected!)} disabled={!!actionLoading}>
+            {actionLoading === 'sendInvites' ? '…' : t('users.sendInvites')}
+          </button>
+          <button class="warn" onclick={() => revokeLinks(selected!)} disabled={!!actionLoading}>
+            {actionLoading === 'revokeLinks' ? '…' : t('users.revokeLinks')}
+          </button>
         </div>
         <div class="actions-row">
-          <button class="warn" onclick={() => resetRegistration(selected!)}>{t('users.resetRegistration')}</button>
-          <button class="danger" onclick={() => unregister(selected!)}>{t('users.unregister')}</button>
+          <button class="warn" onclick={() => resetRegistration(selected!)} disabled={!!actionLoading}>
+            {actionLoading === 'resetRegistration' ? '…' : t('users.resetRegistration')}
+          </button>
+          <button class="danger" onclick={() => unregister(selected!)} disabled={!!actionLoading}>
+            {actionLoading === 'unregister' ? '…' : t('users.unregister')}
+          </button>
         </div>
       </div>
       {#if actionMsg}
@@ -305,6 +336,7 @@
             </div>
           {/each}
         </div>
+      {/if}
       {/if}
     {/if}
   </section>
@@ -389,6 +421,8 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   .list-msg { color: #888; font-size: 0.88rem; padding: 0.4rem 0; }
+  .detail-loading { display: flex; align-items: center; gap: 0.5rem; color: #888; font-size: 0.88rem; padding: 1rem 0; }
+  .detail-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #ddd; border-top-color: #1a1a2e; border-radius: 50%; animation: spin 0.6s linear infinite; flex-shrink: 0; }
 
   .user-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.3rem; }
   .user-list li button { background: white; padding: 0.6rem 0.8rem; border-radius: 6px; cursor: pointer; display: flex; flex-direction: column; box-shadow: 0 1px 3px rgba(0,0,0,.07); width: 100%; text-align: left; font: inherit; color: inherit; border: 1px solid transparent; }
@@ -400,6 +434,7 @@
   button { padding: 0.4rem 0.8rem; border: none; border-radius: 4px; cursor: pointer; background: #1a1a2e; color: white; }
   button.warn { background: #e67e22; }
   button.danger { background: #c0392b; }
+  button:disabled { opacity: 0.6; cursor: default; }
   .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 10px; font-size: 0.75rem; font-weight: 500; }
   .badge-completed { background: #27ae60; color: white; }
   .badge-progress { background: #e67e22; color: white; }
