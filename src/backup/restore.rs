@@ -39,22 +39,25 @@ async fn restore_sqlite(
         .ok_or_else(|| anyhow::anyhow!("Invalid backup path"))?
         .to_string();
 
+    // Acquire a single connection so PRAGMA and ATTACH are visible to all queries
+    let mut conn = pool.acquire().await?;
+
     sqlx::query(&format!(
         "ATTACH DATABASE '{}' AS backup_db",
         path_str.replace('\'', "''")
     ))
-    .execute(pool)
+    .execute(&mut *conn)
     .await?;
 
     let tables: Vec<(String,)> = sqlx::query_as(
         "SELECT name FROM backup_db.sqlite_master WHERE type='table' \
          AND name NOT LIKE '_sqlx%' AND name NOT LIKE 'sqlite_%'"
     )
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await?;
 
     sqlx::query("PRAGMA foreign_keys = OFF")
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
 
     for (table_name,) in &tables {
@@ -63,17 +66,17 @@ async fn restore_sqlite(
             continue;
         }
         sqlx::query(&format!("DELETE FROM main.{table_name}"))
-            .execute(pool)
+            .execute(&mut *conn)
             .await?;
         sqlx::query(&format!(
             "INSERT INTO main.{table_name} SELECT * FROM backup_db.{table_name}"
         ))
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     }
 
-    sqlx::query("PRAGMA foreign_keys = ON").execute(pool).await?;
-    sqlx::query("DETACH DATABASE backup_db").execute(pool).await?;
+    sqlx::query("PRAGMA foreign_keys = ON").execute(&mut *conn).await?;
+    sqlx::query("DETACH DATABASE backup_db").execute(&mut *conn).await?;
 
     Ok(())
 }
@@ -92,12 +95,13 @@ async fn restore_json_to_sqlite(
         .and_then(|v| v.as_object())
         .ok_or_else(|| anyhow::anyhow!("Invalid backup: missing 'tables' object"))?;
 
+    // Acquire a single connection — PRAGMA foreign_keys is connection-scoped
+    let mut conn = pool.acquire().await?;
+
     sqlx::query("PRAGMA foreign_keys = OFF")
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
 
-    // Delete in reverse-dependency order, then insert forward.
-    // For simplicity on SQLite (FK already disabled), just process all tables.
     for (table_name, rows_val) in tables_obj {
         if !table_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
             tracing::warn!("Skipping table with invalid name: {table_name}");
@@ -105,7 +109,7 @@ async fn restore_json_to_sqlite(
         }
 
         sqlx::query(&format!("DELETE FROM \"{table_name}\""))
-            .execute(pool)
+            .execute(&mut *conn)
             .await?;
 
         let rows = match rows_val.as_array() {
@@ -134,12 +138,12 @@ async fn restore_json_to_sqlite(
             sqlx::query(&format!(
                 "INSERT INTO \"{table_name}\" ({col_list}) VALUES ({values_list})"
             ))
-            .execute(pool)
+            .execute(&mut *conn)
             .await?;
         }
     }
 
-    sqlx::query("PRAGMA foreign_keys = ON").execute(pool).await?;
+    sqlx::query("PRAGMA foreign_keys = ON").execute(&mut *conn).await?;
 
     Ok(())
 }
