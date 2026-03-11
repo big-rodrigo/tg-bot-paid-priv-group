@@ -325,6 +325,29 @@ pub fn admin_no_username(l: Lang) -> &'static str {
     }
 }
 
+// ── Backup ───────────────────────────────────────────────────────────────────
+
+pub fn backup_caption(l: Lang, date: &str) -> String {
+    match l {
+        Lang::En => format!("Database backup — {date}"),
+        Lang::PtBr => format!("Backup do banco de dados — {date}"),
+    }
+}
+
+pub fn backup_part_caption(l: Lang, date: &str, part: usize, total: usize) -> String {
+    match l {
+        Lang::En => format!("Database backup — {date} (part {part}/{total})"),
+        Lang::PtBr => format!("Backup do banco de dados — {date} (parte {part}/{total})"),
+    }
+}
+
+pub fn backup_failed(l: Lang, err: &str) -> String {
+    match l {
+        Lang::En => format!("Database backup failed: {err}"),
+        Lang::PtBr => format!("Falha no backup do banco de dados: {err}"),
+    }
+}
+
 // ── Help / command descriptions ──────────────────────────────────────────────
 
 pub fn cmd_start(l: Lang) -> &'static str {

@@ -6,7 +6,7 @@ use crate::{
     bot::{commands::AdminCommand, state::HandlerResult},
     config::AppConfig,
     db::{models::Group, queries, DbPool},
-    db_query_as,
+    db_query_as, db_execute,
     i18n::{self, Lang},
 };
 
@@ -19,6 +19,13 @@ pub async fn handle(
     lang: Arc<RwLock<Lang>>,
 ) -> HandlerResult {
     let l = *lang.read().await;
+
+    // Capture admin chat_id for backup delivery
+    let chat_id_str = msg.chat.id.0.to_string();
+    let _ = db_execute!(&pool,
+        "INSERT INTO settings (key, value) VALUES ('admin_chat_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [&chat_id_str]);
+
     match cmd {
         AdminCommand::Admin => {
             bot.send_message(msg.chat.id, i18n::admin_help_text(l)).await?;

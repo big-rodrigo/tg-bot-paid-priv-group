@@ -6,6 +6,7 @@ use teloxide::{
 use tokio::sync::RwLock;
 
 use crate::{
+    backup::BackupManager,
     bot::{
         state::{BotDialogue, HandlerResult, State},
         util::escape_html,
@@ -125,7 +126,9 @@ pub async fn handle_message(
     pool: DbPool,
     payment_provider: Arc<dyn PaymentProvider + Send + Sync>,
     lang: Arc<RwLock<Lang>>,
+    backup_manager: Arc<BackupManager>,
 ) -> HandlerResult {
+    backup_manager.maybe_trigger();
     let l = *lang.read().await;
     let state = dialogue.get().await?.unwrap_or_default();
     let (phase_id, question_id) = match state {
@@ -225,7 +228,9 @@ pub async fn handle_callback(
     pool: DbPool,
     payment_provider: Arc<dyn PaymentProvider + Send + Sync>,
     lang: Arc<RwLock<Lang>>,
+    backup_manager: Arc<BackupManager>,
 ) -> HandlerResult {
+    backup_manager.maybe_trigger();
     let l = *lang.read().await;
     let state = dialogue.get().await?.unwrap_or_default();
     let (phase_id, question_id) = match state {

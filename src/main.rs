@@ -1,3 +1,4 @@
+mod backup;
 mod bot;
 mod config;
 mod db;
@@ -92,6 +93,14 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("Webhook endpoint: {base}/api/webhooks/payment");
     }
 
+    // Create backup manager
+    let backup_manager = Arc::new(backup::BackupManager::new(
+        pool.clone(),
+        telegram_bot.clone(),
+        Arc::clone(&config),
+        Arc::clone(&lang),
+    ));
+
     // Build shared web state
     let web_state = WebState {
         db: pool.clone(),
@@ -99,6 +108,7 @@ async fn main() -> anyhow::Result<()> {
         config: Arc::clone(&config),
         payment_provider: Arc::clone(&payment_provider),
         lang: Arc::clone(&lang),
+        backup_manager: Arc::clone(&backup_manager),
     };
 
     // ── Spawn tasks ──────────────────────────────────────────────────────
@@ -108,6 +118,7 @@ async fn main() -> anyhow::Result<()> {
     let bot_provider = Arc::clone(&payment_provider);
     let bot_storage = Arc::clone(&storage);
     let bot_lang = Arc::clone(&lang);
+    let bot_backup = Arc::clone(&backup_manager);
 
     let bot_task = tokio::spawn(async move {
         tracing::info!("Bot dispatcher starting");
@@ -118,6 +129,7 @@ async fn main() -> anyhow::Result<()> {
             bot_config,
             bot_provider,
             bot_lang,
+            bot_backup,
         )
         .await;
     });

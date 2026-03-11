@@ -3,6 +3,7 @@ use teloxide::prelude::*;
 use tokio::sync::RwLock;
 
 use crate::{
+    backup::BackupManager,
     bot::state::{BotDialogue, HandlerResult, State},
     db::{queries, DbPool},
     db_query_as, db_execute,
@@ -17,7 +18,9 @@ pub async fn handle_start(
     pool: DbPool,
     payment_provider: Arc<dyn PaymentProvider + Send + Sync>,
     lang: Arc<RwLock<Lang>>,
+    backup_manager: Arc<BackupManager>,
 ) -> HandlerResult {
+    backup_manager.maybe_trigger();
     let l = *lang.read().await;
     let from = match msg.from.as_ref() {
         Some(u) => u,

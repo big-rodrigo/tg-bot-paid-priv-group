@@ -15,6 +15,7 @@ use teloxide::{
 use tokio::sync::RwLock;
 
 use crate::{
+    backup::BackupManager,
     config::AppConfig,
     db::DbPool,
     i18n::{self, Lang},
@@ -49,13 +50,14 @@ pub async fn run_dispatcher(
     config: Arc<AppConfig>,
     payment_provider: Arc<dyn PaymentProvider + Send + Sync>,
     lang: Arc<RwLock<Lang>>,
+    backup_manager: Arc<BackupManager>,
 ) {
     // Register user-visible commands with Telegram so they appear in the "/" menu
     let l = *lang.read().await;
     set_bot_commands(&bot, l).await;
 
     Dispatcher::builder(bot.clone(), build_handler())
-        .dependencies(dptree::deps![storage, pool, config, payment_provider, lang])
+        .dependencies(dptree::deps![storage, pool, config, payment_provider, lang, backup_manager])
         .enable_ctrlc_handler()
         .build()
         .dispatch()

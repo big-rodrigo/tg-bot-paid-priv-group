@@ -1,4 +1,5 @@
 pub mod admin;
+pub mod backup;
 pub mod groups;
 pub mod invite_rules;
 pub mod payment_gate;

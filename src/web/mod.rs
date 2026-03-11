@@ -144,6 +144,14 @@ pub fn create_router(state: WebState) -> Router {
                 .delete(routes::upload::delete_file)
                 .layer(DefaultBodyLimit::max(20 * 1024 * 1024)),
         )
+        // Database backup & restore
+        .route("/api/backup/trigger", post(routes::backup::trigger))
+        .route("/api/backup/status", get(routes::backup::status))
+        .route(
+            "/api/backup/restore",
+            post(routes::backup::restore)
+                .layer(DefaultBodyLimit::max(500 * 1024 * 1024)),
+        )
         .layer(middleware::from_fn_with_state(state.clone(), auth::basic_auth));
 
     // ── Uploaded media files (served before SPA fallback) ────────────────

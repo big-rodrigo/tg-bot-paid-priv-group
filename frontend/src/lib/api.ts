@@ -168,6 +168,28 @@ export const media = {
   },
 };
 
+// ── Backup ────────────────────────────────────────────────────────────────
+export const backup = {
+  trigger: () => request<{ message: string }>('POST', '/backup/trigger'),
+  status: () => request<{ running: boolean; last_backup_at: string | null }>('GET', '/backup/status'),
+  restore: async (files: File[]): Promise<{ message: string }> => {
+    const secret = localStorage.getItem('adminSecret') ?? '';
+    const encoded = btoa(`admin:${secret}`);
+    const form = new FormData();
+    files.forEach((file) => form.append(file.name, file, file.name));
+    const res = await fetch(`${BASE}/backup/restore`, {
+      method: 'POST',
+      headers: { Authorization: `Basic ${encoded}` },
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error ?? res.statusText);
+    }
+    return res.json();
+  },
+};
+
 // ── Debug ─────────────────────────────────────────────────────────────────
 export const debug = {
   livepixToken: () => request<{ token: string | null }>('GET', '/debug/livepix-token'),
